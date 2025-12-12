@@ -1,0 +1,70 @@
+// PennyPilot Custom Styles
+
+// Brand Colors
+$primary: #1976d2;
+$secondary: #26a69a;
+$accent: #9c27b0;
+$positive: #21ba45;
+$negative: #c10015;
+$info: #31ccec;
+$warning: #f2c037;
+
+// Typography
+body {
+  font-family: 'Roboto', sans-serif;
+}
+
+// Dashboard Cards
+.dashboard-card {
+  border-radius: 12px;
+  transition: transform 0.2s ease;
+
+  &:hover {
+    transform: translateY(-2px);
+  }
+}
+
+// Amount Display
+.amount {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+
+  &.positive {
+    color: $positive;
+  }
+
+  &.negative {
+    color: $negative;
+  }
+}
+
+// Transaction List
+.transaction-item {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+
+  &:last-child {
+    border-bottom: none;
+  }
+}
+
+// Category Chip
+.category-chip {
+  font-size: 0.75rem;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+// Mobile Responsive
+@media (max-width: 599px) {
+  .hide-mobile {
+    display: none;
+  }
+}
+
+// Currency formatting for South African Rand
+.currency-zar {
+  &::before {
+    content: 'R';
+    margin-right: 2px;
+  }
+}
