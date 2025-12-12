@@ -10,6 +10,12 @@ class LocalBaseService {
     this.db.config.debug = import.meta.env.DEV;
   }
 
+  async init(): Promise<void> {
+    // Initialize database - LocalBase auto-initializes on first use
+    // This method exists for future initialization needs
+    console.log('LocalBase initialized');
+  }
+
   // ========== Transactions ==========
 
   async getAllTransactions(): Promise<Transaction[]> {
