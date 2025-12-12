@@ -1,0 +1,29 @@
+{
+  "name": "pilot-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "PennyPilot - AI-powered personal finance ecosystem",
+  "workspaces": [
+    "apps/*/frontend",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/pennypilot/frontend",
+    "build": "npm run build --workspace=apps/pennypilot/frontend",
+    "lint": "npm run lint --workspace=apps/pennypilot/frontend",
+    "test": "npm run test:unit --workspace=apps/pennypilot/frontend",
+    "php:serve": "php -S localhost:8080 -t apps/pennypilot/backend/public",
+    "php:lint": "cd apps/pennypilot/backend && composer lint",
+    "php:test": "cd apps/pennypilot/backend && composer test",
+    "setup": "npm install && cd apps/pennypilot/backend && composer install"
+  },
+  "keywords": [
+    "fintech",
+    "personal-finance",
+    "vue",
+    "quasar",
+    "php"
+  ],
+  "author": "",
+  "license": "UNLICENSED"
+}
