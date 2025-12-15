@@ -20,6 +20,43 @@
       <q-tab name="categorized" label="Categorized" />
     </q-tabs>
 
+    <!-- Monthly Summary Cards -->
+    <div v-if="quickTab !== 'uncategorized' && !selectedMonth" class="row q-col-gutter-sm q-mb-md">
+      <div v-for="month in monthlyTotals" :key="month.key" class="col-6 col-sm-4 col-md-3">
+        <q-card
+          class="cursor-pointer monthly-card"
+          :class="{ 'selected-month': selectedMonth === month.key }"
+          @click="selectMonth(month.key)"
+        >
+          <q-card-section class="q-pa-sm">
+            <div class="text-subtitle2 text-grey-8">{{ month.label }}</div>
+            <div class="row justify-between q-mt-xs">
+              <div>
+                <div class="text-caption text-grey">Income</div>
+                <div class="text-positive text-weight-medium">+R {{ formatCompact(month.income) }}</div>
+              </div>
+              <div class="text-right">
+                <div class="text-caption text-grey">Expenses</div>
+                <div class="text-negative text-weight-medium">-R {{ formatCompact(month.expenses) }}</div>
+              </div>
+            </div>
+            <div class="text-caption text-grey q-mt-xs">{{ month.count }} transactions</div>
+          </q-card-section>
+        </q-card>
+      </div>
+    </div>
+
+    <!-- Selected Month Header -->
+    <q-banner v-if="selectedMonth" class="bg-primary text-white q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="calendar_month" />
+      </template>
+      {{ selectedMonthLabel }}
+      <template v-slot:action>
+        <q-btn flat label="Show All Months" @click="clearMonthFilter" />
+      </template>
+    </q-banner>
+
     <!-- Filters -->
     <q-slide-transition>
       <q-card v-if="showFilters" class="q-mb-md">
@@ -234,7 +271,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
-import { format } from 'date-fns';
+import { format, parseISO, startOfMonth, endOfMonth } from 'date-fns';
 import { useQuasar } from 'quasar';
 import { useTransactionsStore } from '@/stores/transactions.store';
 import { useCategoriesStore } from '@/stores/categories.store';
@@ -250,6 +287,7 @@ const searchQuery = ref('');
 const categoryFilter = ref<string | null>(null);
 const categorizedFilter = ref<boolean | null>(null);
 const quickTab = ref('all');
+const selectedMonth = ref<string | null>(null);
 
 const showCategoryDialog = ref(false);
 const selectedTransaction = ref<Transaction | null>(null);
@@ -277,6 +315,62 @@ const uncategorizedCount = computed(() => transactionsStore.uncategorizedCount);
 
 const hasActiveFilters = computed(() => {
   return searchQuery.value || categoryFilter.value;
+});
+
+// Monthly totals for cards
+interface MonthlyTotal {
+  key: string;
+  label: string;
+  income: number;
+  expenses: number;
+  count: number;
+}
+
+const monthlyTotals = computed<MonthlyTotal[]>(() => {
+  // Get base transactions based on current tab (all or categorized only)
+  const baseTransactions = quickTab.value === 'categorized'
+    ? transactionsStore.transactions.filter(t => t.is_categorized)
+    : transactionsStore.transactions;
+
+  // Group by month
+  const grouped = new Map<string, { income: number; expenses: number; count: number }>();
+
+  baseTransactions.forEach((t) => {
+    const date = parseISO(t.transaction_date);
+    const monthKey = format(startOfMonth(date), 'yyyy-MM');
+
+    if (!grouped.has(monthKey)) {
+      grouped.set(monthKey, { income: 0, expenses: 0, count: 0 });
+    }
+
+    const data = grouped.get(monthKey)!;
+    if (t.amount >= 0) {
+      data.income += t.amount;
+    } else {
+      data.expenses += Math.abs(t.amount);
+    }
+    data.count++;
+  });
+
+  // Convert to array and sort by month descending
+  const result: MonthlyTotal[] = [];
+  grouped.forEach((data, monthKey) => {
+    result.push({
+      key: monthKey,
+      label: format(parseISO(monthKey + '-01'), 'MMM yyyy'),
+      income: data.income,
+      expenses: data.expenses,
+      count: data.count,
+    });
+  });
+
+  return result.sort((a, b) => b.key.localeCompare(a.key));
+});
+
+const selectedMonthLabel = computed(() => {
+  if (!selectedMonth.value) return '';
+  const month = monthlyTotals.value.find(m => m.key === selectedMonth.value);
+  return month ? month.label : '';
 });
 
 const categoryOptions = computed(() => {
@@ -321,6 +415,9 @@ watch([searchQuery, categoryFilter], () => {
 
 // Handle quick tab changes
 watch(quickTab, (newTab) => {
+  // Clear month filter when switching tabs
+  selectedMonth.value = null;
+
   switch (newTab) {
     case 'uncategorized':
       categorizedFilter.value = false;
@@ -335,6 +432,8 @@ watch(quickTab, (newTab) => {
     searchQuery: searchQuery.value,
     categoryId: categoryFilter.value,
     isCategorized: categorizedFilter.value,
+    startDate: null,
+    endDate: null,
   });
 });
 
@@ -344,6 +443,43 @@ onMounted(() => {
     quickTab.value = 'uncategorized';
   }
 });
+
+// Month selection
+function selectMonth(monthKey: string) {
+  selectedMonth.value = monthKey;
+  const date = parseISO(monthKey + '-01');
+  const start = format(startOfMonth(date), 'yyyy-MM-dd');
+  const end = format(endOfMonth(date), 'yyyy-MM-dd');
+
+  transactionsStore.setFilters({
+    searchQuery: searchQuery.value,
+    categoryId: categoryFilter.value,
+    isCategorized: categorizedFilter.value,
+    startDate: start,
+    endDate: end,
+  });
+}
+
+function clearMonthFilter() {
+  selectedMonth.value = null;
+  transactionsStore.setFilters({
+    searchQuery: searchQuery.value,
+    categoryId: categoryFilter.value,
+    isCategorized: categorizedFilter.value,
+    startDate: null,
+    endDate: null,
+  });
+}
+
+function formatCompact(amount: number): string {
+  if (amount >= 1000000) {
+    return (amount / 1000000).toFixed(1) + 'M';
+  }
+  if (amount >= 1000) {
+    return (amount / 1000).toFixed(1) + 'K';
+  }
+  return amount.toFixed(0);
+}
 
 function selectTransaction(tx: Transaction) {
   selectedTransaction.value = tx;
@@ -484,3 +620,19 @@ function getCategoryIcon(id: string | null): string {
   return categoriesStore.getCategoryIcon(id);
 }
 </script>
+
+<style scoped>
+.monthly-card {
+  transition: all 0.2s ease;
+  border: 2px solid transparent;
+}
+
+.monthly-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.monthly-card.selected-month {
+  border-color: var(--q-primary);
+}
+</style>
