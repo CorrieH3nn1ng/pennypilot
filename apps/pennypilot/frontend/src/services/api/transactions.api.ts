@@ -32,7 +32,15 @@ export const transactionsApi = {
     await apiClient.delete(`/transactions/${id}`);
   },
 
-  async bulkCreate(transactions: ParsedTransaction[]): Promise<{
+  async bulkCreate(transactions: {
+    transaction_date: string;
+    description: string;
+    amount: number;
+    balance_after?: number | null;
+    bank_reference?: string | null;
+    raw_description?: string | null;
+    local_id?: string;
+  }[]): Promise<{
     created_count: number;
     skipped_count: number;
     created: { id: string; local_id: string | null }[];

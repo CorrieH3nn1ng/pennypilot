@@ -1,4 +1,5 @@
 import type { ParsedTransaction, ParseResult, ParseError } from '@/types';
+import Papa from 'papaparse';
 
 export abstract class BaseBankParser {
   protected errors: ParseError[] = [];
@@ -7,6 +8,31 @@ export abstract class BaseBankParser {
   abstract get bankName(): string;
   abstract get expectedColumns(): string[];
   abstract mapRow(row: Record<string, string>, rowIndex: number): ParsedTransaction | null;
+
+  /**
+   * Parse a file - subclasses can override for custom formats
+   */
+  async parseFile(file: File): Promise<ParseResult> {
+    return new Promise((resolve) => {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (results) => {
+          const rows = results.data as Record<string, string>[];
+          resolve(this.parse(rows));
+        },
+        error: (error) => {
+          resolve({
+            success: false,
+            transactions: [],
+            errors: [{ row: 0, field: 'file', message: error.message, rawValue: null }],
+            warnings: [],
+            stats: { totalRows: 0, parsedRows: 0, skippedRows: 0, dateRange: null },
+          });
+        },
+      });
+    });
+  }
 
   parse(rows: Record<string, string>[]): ParseResult {
     this.errors = [];

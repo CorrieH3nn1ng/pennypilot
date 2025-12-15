@@ -149,24 +149,14 @@ async function handleFileSelect(selectedFile: File | null) {
   parseResult.value = null;
 
   try {
-    let rows: Record<string, string>[];
-
-    if (selectedFile.name.endsWith('.csv')) {
-      rows = await parseCsv(selectedFile);
-    } else {
-      rows = await parseExcel(selectedFile);
-    }
-
-    if (rows.length === 0) {
-      throw new Error('No data found in file');
-    }
-
-    // Detect bank format from headers
-    const headers = Object.keys(rows[0]);
-    detectedFormat.value = ParserFactory.detectFormat(headers);
-
+    // For now, assume Nedbank format - can add auto-detection later
+    detectedFormat.value = 'nedbank';
     const parser = ParserFactory.create(detectedFormat.value);
-    parseResult.value = parser.parse(rows);
+
+    // Use the parser's own parse method which handles the file format
+    const result = await parser.parseFile(selectedFile);
+
+    parseResult.value = result;
   } catch (error) {
     console.error('File processing error:', error);
     parseResult.value = {

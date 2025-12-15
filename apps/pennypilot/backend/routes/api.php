@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\AccountController;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\CategoryController;
 use App\Http\Controllers\Api\TransactionController;
@@ -35,4 +36,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/transactions/summary', [TransactionController::class, 'summary']);
     Route::post('/transactions/bulk', [TransactionController::class, 'bulkStore']);
     Route::apiResource('transactions', TransactionController::class);
+
+    // Accounts
+    Route::get('/accounts', [AccountController::class, 'index']);
+    Route::get('/accounts/default', [AccountController::class, 'getDefault']);
+    Route::post('/accounts/set-balance', [AccountController::class, 'setBalance']);
+    Route::put('/accounts/{id}', [AccountController::class, 'update']);
 });

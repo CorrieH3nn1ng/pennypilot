@@ -2,9 +2,42 @@
   <q-page class="q-pa-md">
     <div class="text-h5 q-mb-md">Dashboard</div>
 
+    <!-- Balance Setup Banner -->
+    <q-banner v-if="!hasSetBalance" class="bg-info text-white q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="account_balance" />
+      </template>
+      Set your current bank balance to see accurate totals.
+      <template v-slot:action>
+        <q-btn flat label="Set Balance" @click="showBalanceDialog = true" />
+      </template>
+    </q-banner>
+
     <!-- Summary Cards -->
     <div class="row q-col-gutter-md q-mb-lg">
-      <div class="col-12 col-sm-4">
+      <div class="col-12 col-sm-6 col-md-3">
+        <q-card class="dashboard-card">
+          <q-card-section>
+            <div class="text-caption text-grey">Current Balance</div>
+            <div class="text-h5" :class="calculatedBalance >= 0 ? 'text-positive' : 'text-negative'">
+              R {{ formatAmount(calculatedBalance) }}
+            </div>
+            <q-btn
+              v-if="hasSetBalance"
+              flat
+              dense
+              size="sm"
+              icon="edit"
+              class="q-mt-xs"
+              @click="showBalanceDialog = true"
+            >
+              Update
+            </q-btn>
+          </q-card-section>
+        </q-card>
+      </div>
+
+      <div class="col-12 col-sm-6 col-md-3">
         <q-card class="dashboard-card">
           <q-card-section>
             <div class="text-caption text-grey">Total Income</div>
@@ -15,7 +48,7 @@
         </q-card>
       </div>
 
-      <div class="col-12 col-sm-4">
+      <div class="col-12 col-sm-6 col-md-3">
         <q-card class="dashboard-card">
           <q-card-section>
             <div class="text-caption text-grey">Total Expenses</div>
@@ -26,12 +59,12 @@
         </q-card>
       </div>
 
-      <div class="col-12 col-sm-4">
+      <div class="col-12 col-sm-6 col-md-3">
         <q-card class="dashboard-card">
           <q-card-section>
-            <div class="text-caption text-grey">Net Balance</div>
-            <div class="text-h5" :class="netBalance >= 0 ? 'text-positive' : 'text-negative'">
-              R {{ formatAmount(netBalance) }}
+            <div class="text-caption text-grey">Opening Balance</div>
+            <div class="text-h5 text-grey-8">
+              R {{ formatAmount(openingBalance) }}
             </div>
           </q-card-section>
         </q-card>
@@ -100,27 +133,92 @@
         <q-btn outline color="primary" class="full-width" to="/transactions" icon="add" label="Add Transaction" />
       </div>
     </div>
+
+    <!-- Set Balance Dialog -->
+    <q-dialog v-model="showBalanceDialog" persistent>
+      <q-card style="min-width: 350px">
+        <q-card-section>
+          <div class="text-h6">Set Current Balance</div>
+          <div class="text-caption text-grey">
+            Enter your current bank balance to calculate the correct opening balance.
+          </div>
+        </q-card-section>
+
+        <q-card-section>
+          <q-input
+            v-model.number="newBalance"
+            type="number"
+            label="Current Bank Balance"
+            prefix="R"
+            outlined
+            autofocus
+            :rules="[(v) => v !== null && v !== '' || 'Balance is required']"
+          />
+
+          <div v-if="newBalance" class="q-mt-md text-body2">
+            <div class="row justify-between">
+              <span>Your bank balance:</span>
+              <span class="text-weight-medium">R {{ formatAmount(newBalance || 0) }}</span>
+            </div>
+            <div class="row justify-between">
+              <span>Sum of transactions:</span>
+              <span>R {{ formatAmount(transactionSum) }}</span>
+            </div>
+            <q-separator class="q-my-sm" />
+            <div class="row justify-between text-weight-bold">
+              <span>Calculated opening balance:</span>
+              <span>R {{ formatAmount((newBalance || 0) - transactionSum) }}</span>
+            </div>
+          </div>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" v-close-popup />
+          <q-btn
+            color="primary"
+            label="Save Balance"
+            :loading="isSaving"
+            :disable="!newBalance"
+            @click="saveBalance"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { format } from 'date-fns';
+import { useQuasar } from 'quasar';
 import { useTransactionsStore } from '@/stores/transactions.store';
 import { useCategoriesStore } from '@/stores/categories.store';
+import { useAccountStore } from '@/stores/account.store';
 
+const $q = useQuasar();
 const transactionsStore = useTransactionsStore();
 const categoriesStore = useCategoriesStore();
+const accountStore = useAccountStore();
 
+// Balance dialog state
+const showBalanceDialog = ref(false);
+const newBalance = ref<number | null>(null);
+const isSaving = ref(false);
+
+// Computed
 const totalIncome = computed(() => transactionsStore.totalIncome);
 const totalExpenses = computed(() => transactionsStore.totalExpenses);
-const netBalance = computed(() => totalIncome.value - totalExpenses.value);
 const uncategorizedCount = computed(() => transactionsStore.uncategorizedCount);
+const openingBalance = computed(() => accountStore.openingBalance);
+const calculatedBalance = computed(() => accountStore.calculatedBalance);
+const hasSetBalance = computed(() => accountStore.hasSetBalance);
+const transactionSum = computed(() => accountStore.transactionSum);
 
 const recentTransactions = computed(() => {
   return transactionsStore.filteredTransactions.slice(0, 10);
 });
 
+// Methods
 function formatAmount(amount: number): string {
   return amount.toLocaleString('en-ZA', {
     minimumFractionDigits: 2,
@@ -143,6 +241,34 @@ function getCategoryIcon(id: string | null): string {
 function getCategoryName(id: string | null): string {
   return categoriesStore.getCategoryName(id);
 }
+
+async function saveBalance() {
+  if (!newBalance.value) return;
+
+  isSaving.value = true;
+
+  const success = await accountStore.setBalance(newBalance.value);
+
+  if (success) {
+    $q.notify({
+      type: 'positive',
+      message: 'Balance updated successfully',
+    });
+    showBalanceDialog.value = false;
+    newBalance.value = null;
+  } else {
+    $q.notify({
+      type: 'negative',
+      message: accountStore.error || 'Failed to update balance',
+    });
+  }
+
+  isSaving.value = false;
+}
+
+onMounted(async () => {
+  await accountStore.loadAccount();
+});
 </script>
 
 <style scoped>

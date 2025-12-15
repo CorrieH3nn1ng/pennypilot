@@ -1,20 +1,15 @@
 import { BaseBankParser } from './BaseBankParser';
-import type { ParsedTransaction } from '@/types';
+import type { ParsedTransaction, ParseResult } from '@/types';
+import Papa from 'papaparse';
 
 /**
- * Nedbank CSV/Excel Parser
+ * Nedbank CSV Parser
  *
- * Handles various Nedbank export formats:
- * - Standard CSV exports
- * - Excel statement downloads
- * - Different column variations
- *
- * Typical columns (may vary):
- * - Date | Transaction Date | Trans Date
- * - Description | Transaction Description | Narrative
- * - Amount | Transaction Amount | Debit/Credit
- * - Balance | Running Balance
- * - Reference (optional)
+ * Handles Nedbank statement exports with format:
+ * - Header rows with account info (skipped)
+ * - No column headers for transaction data
+ * - Columns: Date, Description, Amount, Balance
+ * - Date format: 25Jan2025 (ddMMMyyyy)
  */
 export class NedbankParser extends BaseBankParser {
   get bankName(): string {
@@ -22,79 +17,122 @@ export class NedbankParser extends BaseBankParser {
   }
 
   get expectedColumns(): string[] {
-    return ['date', 'description', 'amount'];
+    return ['date', 'description', 'amount', 'balance'];
   }
 
-  // Column name variations Nedbank might use
-  private readonly columnMappings = {
-    date: ['date', 'transaction date', 'trans date', 'value date', 'posting date'],
-    description: ['description', 'transaction description', 'narrative', 'details', 'particulars'],
-    amount: ['amount', 'transaction amount', 'value', 'money in/out'],
-    debit: ['debit', 'debit amount', 'dr', 'money out', 'withdrawal'],
-    credit: ['credit', 'credit amount', 'cr', 'money in', 'deposit'],
-    balance: ['balance', 'running balance', 'available balance', 'closing balance'],
-    reference: ['reference', 'ref', 'transaction reference', 'bank reference', 'statement number'],
-  };
+  /**
+   * Override the base parseFile method to handle Nedbank's headerless format
+   */
+  async parseFile(file: File): Promise<ParseResult> {
+    return new Promise((resolve) => {
+      Papa.parse(file, {
+        header: false, // Nedbank CSV has no headers
+        skipEmptyLines: true,
+        complete: (results) => {
+          const transactions: ParsedTransaction[] = [];
+          this.errors = [];
 
-  mapRow(row: Record<string, string>, rowIndex: number): ParsedTransaction | null {
-    // Normalize column names to lowercase
-    const normalizedRow: Record<string, string> = {};
-    for (const [key, value] of Object.entries(row)) {
-      normalizedRow[key.toLowerCase().trim()] = value?.toString() || '';
-    }
+          const rows = results.data as string[][];
 
-    // Find the correct column for each field
-    const dateValue = this.findColumn(normalizedRow, this.columnMappings.date);
-    const descValue = this.findColumn(normalizedRow, this.columnMappings.description);
-    const balanceValue = this.findColumn(normalizedRow, this.columnMappings.balance);
-    const refValue = this.findColumn(normalizedRow, this.columnMappings.reference);
+          for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const transaction = this.mapRowArray(row, i);
+            if (transaction) {
+              transactions.push(transaction);
+            }
+          }
 
-    // Handle amount (might be single column or separate debit/credit)
-    let amount: number;
-    const amountValue = this.findColumn(normalizedRow, this.columnMappings.amount);
-    const debitValue = this.findColumn(normalizedRow, this.columnMappings.debit);
-    const creditValue = this.findColumn(normalizedRow, this.columnMappings.credit);
+          // Calculate date range
+          let dateRange: { start: string; end: string } | null = null;
+          if (transactions.length > 0) {
+            const dates = transactions.map((t) => t.transactionDate).sort();
+            dateRange = {
+              start: dates[0],
+              end: dates[dates.length - 1],
+            };
+          }
 
-    if (amountValue && amountValue.trim() !== '') {
-      amount = this.parseAmount(amountValue);
-    } else if (debitValue || creditValue) {
-      const debit = debitValue && debitValue.trim() !== '' ? Math.abs(this.parseAmount(debitValue)) : 0;
-      const credit = creditValue && creditValue.trim() !== '' ? Math.abs(this.parseAmount(creditValue)) : 0;
-      amount = credit - debit; // Credits positive, debits negative
-    } else {
-      this.errors.push({
-        row: rowIndex,
-        field: 'amount',
-        message: 'No amount column found',
-        rawValue: row,
+          resolve({
+            success: this.errors.length === 0,
+            transactions,
+            errors: this.errors,
+            warnings: [],
+            stats: {
+              totalRows: rows.length,
+              parsedRows: transactions.length,
+              skippedRows: rows.length - transactions.length - this.errors.length,
+              dateRange,
+            },
+          });
+        },
+        error: (error) => {
+          resolve({
+            success: false,
+            transactions: [],
+            errors: [
+              {
+                row: 0,
+                field: 'file',
+                message: error.message,
+                rawValue: null,
+              },
+            ],
+            warnings: [],
+            stats: {
+              totalRows: 0,
+              parsedRows: 0,
+              skippedRows: 0,
+              dateRange: null,
+            },
+          });
+        },
       });
+    });
+  }
+
+  /**
+   * Map a row array (no headers) to a transaction
+   */
+  private mapRowArray(row: string[], rowIndex: number): ParsedTransaction | null {
+    // Skip rows with less than 3 columns
+    if (row.length < 3) {
       return null;
     }
 
-    // Validate required fields
-    if (!dateValue || dateValue.trim() === '') {
-      // Skip rows without dates (likely headers or empty rows)
+    const [dateStr, description, amountStr, balanceStr] = row.map((v) => v?.trim() || '');
+
+    // Skip metadata/header rows
+    if (this.isMetadataRow(dateStr, description)) {
       return null;
     }
 
-    if (!descValue || descValue.trim() === '') {
-      // Skip rows without description
+    // Skip summary rows
+    if (this.isSummaryRow(description)) {
       return null;
     }
 
-    // Skip rows that look like headers or summaries
-    if (this.isHeaderRow(descValue) || this.isSummaryRow(descValue)) {
+    // Validate date format (should be like 25Jan2025)
+    if (!this.isValidNedbankDate(dateStr)) {
+      return null;
+    }
+
+    // Skip rows without amount (info rows like VAT notices)
+    if (!amountStr || amountStr === '') {
       return null;
     }
 
     try {
+      const amount = this.parseAmount(amountStr);
+      const balance = balanceStr ? this.parseAmount(balanceStr) : null;
+      const transactionDate = this.parseNedbankDate(dateStr);
+
       return {
-        transactionDate: this.parseDate(dateValue),
-        description: this.cleanDescription(descValue),
-        amount: amount,
-        balanceAfter: balanceValue && balanceValue.trim() !== '' ? this.parseAmount(balanceValue) : null,
-        bankReference: refValue || this.extractReference(descValue),
-        rawDescription: descValue,
+        transactionDate,
+        description: this.cleanDescription(description),
+        amount,
+        balanceAfter: balance,
+        bankReference: this.extractReference(description),
+        rawDescription: description,
         importSource: 'csv',
       };
     } catch (error) {
@@ -102,45 +140,98 @@ export class NedbankParser extends BaseBankParser {
         row: rowIndex,
         field: 'parsing',
         message: error instanceof Error ? error.message : 'Parse error',
-        rawValue: row,
+        rawValue: row.join(','),
       });
       return null;
     }
   }
 
-  private findColumn(row: Record<string, string>, possibleNames: string[]): string | null {
-    for (const name of possibleNames) {
-      if (row[name] !== undefined && row[name] !== '') {
-        return row[name];
-      }
-    }
-    return null;
+  /**
+   * Check if row is metadata (account info headers)
+   */
+  private isMetadataRow(dateStr: string, description: string): boolean {
+    const metadataIndicators = [
+      'statement enquiry',
+      'account number',
+      'account description',
+      'statement number',
+    ];
+    const combined = `${dateStr} ${description}`.toLowerCase();
+    return metadataIndicators.some((m) => combined.includes(m));
   }
 
-  private isHeaderRow(description: string): boolean {
-    const headerIndicators = ['description', 'transaction', 'details', 'narrative', 'particulars'];
-    const lower = description.toLowerCase().trim();
-    return headerIndicators.some((h) => lower === h);
-  }
-
+  /**
+   * Check if this is a summary/info row to skip
+   */
   private isSummaryRow(description: string): boolean {
     const summaryIndicators = [
       'opening balance',
       'closing balance',
+      'carried forward',
+      'brought forward',
+      'balance brought',
+      'balance carried',
       'total',
       'subtotal',
-      'balance brought forward',
-      'balance carried forward',
-      'statement',
     ];
     const lower = description.toLowerCase();
     return summaryIndicators.some((s) => lower.includes(s));
   }
 
+  /**
+   * Validate Nedbank date format (25Jan2025)
+   */
+  private isValidNedbankDate(dateStr: string): boolean {
+    // Pattern: 1-2 digits + 3 letter month + 4 digit year
+    const pattern = /^\d{1,2}[A-Za-z]{3}\d{4}$/;
+    return pattern.test(dateStr);
+  }
+
+  /**
+   * Parse Nedbank date format (25Jan2025 -> Date)
+   */
+  private parseNedbankDate(dateStr: string): string {
+    const months: Record<string, string> = {
+      jan: '01',
+      feb: '02',
+      mar: '03',
+      apr: '04',
+      may: '05',
+      jun: '06',
+      jul: '07',
+      aug: '08',
+      sep: '09',
+      oct: '10',
+      nov: '11',
+      dec: '12',
+    };
+
+    // Extract day, month, year from format like "25Jan2025"
+    const match = dateStr.match(/^(\d{1,2})([A-Za-z]{3})(\d{4})$/);
+    if (!match) {
+      throw new Error(`Invalid date format: ${dateStr}`);
+    }
+
+    const [, day, monthStr, year] = match;
+    const month = months[monthStr.toLowerCase()];
+    if (!month) {
+      throw new Error(`Invalid month: ${monthStr}`);
+    }
+
+    // Return ISO format: YYYY-MM-DD
+    return `${year}-${month}-${day.padStart(2, '0')}`;
+  }
+
+  /**
+   * Extract reference numbers from description
+   */
   private extractReference(description: string): string | null {
-    // Try to extract reference numbers from description
-    // Common patterns: REF:123456, *123456*, #123456
-    const patterns = [/REF[:\s]*(\w+)/i, /\*(\d+)\*/, /#(\d+)/, /CARD\s+(\d{4})/i, /(\d{6,})/];
+    // Common patterns in Nedbank descriptions
+    const patterns = [
+      /\*(\w+)\*/, // *reference*
+      /(\d{10,})/, // Long number sequences
+      /CARD\s+(\d{4})/i, // Card last 4 digits
+    ];
 
     for (const pattern of patterns) {
       const match = pattern.exec(description);
@@ -149,5 +240,12 @@ export class NedbankParser extends BaseBankParser {
       }
     }
     return null;
+  }
+
+  // Override base mapRow - not used but required by interface
+  mapRow(row: Record<string, string>, rowIndex: number): ParsedTransaction | null {
+    // Convert to array format
+    const values = Object.values(row);
+    return this.mapRowArray(values, rowIndex);
   }
 }

@@ -132,13 +132,13 @@ export const useTransactionsStore = defineStore('transactions', () => {
     try {
       const result = await transactionsApi.bulkCreate(
         pending.map((t) => ({
-          transactionDate: t.transaction_date,
+          transaction_date: t.transaction_date,
           description: t.description,
           amount: t.amount,
-          balanceAfter: t.balance_after,
-          bankReference: t.bank_reference,
-          rawDescription: t.raw_description || t.description,
-          importSource: 'csv' as const,
+          balance_after: t.balance_after,
+          bank_reference: t.bank_reference,
+          raw_description: t.raw_description || t.description,
+          local_id: t.local_id,
         }))
       );
 
