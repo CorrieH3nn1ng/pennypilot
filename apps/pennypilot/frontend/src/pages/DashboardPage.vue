@@ -82,6 +82,16 @@
       </template>
     </q-banner>
 
+    <!-- Charts -->
+    <div class="row q-col-gutter-md q-mb-lg">
+      <div class="col-12 col-md-6">
+        <SpendingByCategory />
+      </div>
+      <div class="col-12 col-md-6">
+        <MonthlyTrend />
+      </div>
+    </div>
+
     <!-- Recent Transactions -->
     <q-card class="q-mb-md">
       <q-card-section>
@@ -194,6 +204,8 @@ import { useQuasar } from 'quasar';
 import { useTransactionsStore } from '@/stores/transactions.store';
 import { useCategoriesStore } from '@/stores/categories.store';
 import { useAccountStore } from '@/stores/account.store';
+import SpendingByCategory from '@/components/charts/SpendingByCategory.vue';
+import MonthlyTrend from '@/components/charts/MonthlyTrend.vue';
 
 const $q = useQuasar();
 const transactionsStore = useTransactionsStore();
