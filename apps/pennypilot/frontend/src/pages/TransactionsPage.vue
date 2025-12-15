@@ -8,6 +8,18 @@
       </q-btn>
     </div>
 
+    <!-- Quick Filter Tabs -->
+    <q-tabs v-model="quickTab" class="q-mb-md" align="left" dense>
+      <q-tab name="all" label="All" />
+      <q-tab name="uncategorized">
+        <span>Uncategorized</span>
+        <q-badge v-if="uncategorizedCount > 0" color="warning" class="q-ml-sm">
+          {{ uncategorizedCount }}
+        </q-badge>
+      </q-tab>
+      <q-tab name="categorized" label="Categorized" />
+    </q-tabs>
+
     <!-- Filters -->
     <q-slide-transition>
       <q-card v-if="showFilters" class="q-mb-md">
@@ -237,6 +249,7 @@ const showFilters = ref(false);
 const searchQuery = ref('');
 const categoryFilter = ref<string | null>(null);
 const categorizedFilter = ref<boolean | null>(null);
+const quickTab = ref('all');
 
 const showCategoryDialog = ref(false);
 const selectedTransaction = ref<Transaction | null>(null);
@@ -260,9 +273,10 @@ const quickColorOptions = [
 ];
 
 const transactions = computed(() => transactionsStore.filteredTransactions);
+const uncategorizedCount = computed(() => transactionsStore.uncategorizedCount);
 
 const hasActiveFilters = computed(() => {
-  return searchQuery.value || categoryFilter.value || categorizedFilter.value !== null;
+  return searchQuery.value || categoryFilter.value;
 });
 
 const categoryOptions = computed(() => {
@@ -296,8 +310,27 @@ const allCategoryOptionsWithCreate = computed(() => {
   ];
 });
 
-// Apply filters
-watch([searchQuery, categoryFilter, categorizedFilter], () => {
+// Apply filters when search or category changes
+watch([searchQuery, categoryFilter], () => {
+  transactionsStore.setFilters({
+    searchQuery: searchQuery.value,
+    categoryId: categoryFilter.value,
+    isCategorized: categorizedFilter.value,
+  });
+});
+
+// Handle quick tab changes
+watch(quickTab, (newTab) => {
+  switch (newTab) {
+    case 'uncategorized':
+      categorizedFilter.value = false;
+      break;
+    case 'categorized':
+      categorizedFilter.value = true;
+      break;
+    default:
+      categorizedFilter.value = null;
+  }
   transactionsStore.setFilters({
     searchQuery: searchQuery.value,
     categoryId: categoryFilter.value,
@@ -308,8 +341,7 @@ watch([searchQuery, categoryFilter, categorizedFilter], () => {
 // Handle URL filter parameter
 onMounted(() => {
   if (route.query.filter === 'uncategorized') {
-    categorizedFilter.value = false;
-    showFilters.value = true;
+    quickTab.value = 'uncategorized';
   }
 });
 
