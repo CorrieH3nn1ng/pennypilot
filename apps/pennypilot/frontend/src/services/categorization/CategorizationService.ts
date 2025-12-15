@@ -294,23 +294,31 @@ class CategorizationService {
 
   /**
    * Extract a clean pattern from a transaction description
-   * Removes numbers, dates, and common noise
+   * Removes numbers, dates, and common noise to get merchant name
    */
   extractPattern(description: string): string {
     // Remove common noise patterns
     let pattern = description
-      .replace(/\d{2}[\/\-]\d{2}[\/\-]\d{2,4}/g, '') // dates
-      .replace(/\d{4,}/g, '') // long numbers (account numbers, refs)
-      .replace(/\s+/g, ' ') // normalize spaces
+      .replace(/\d{2}[\/\-]\d{2}[\/\-]\d{2,4}/g, '') // dates like 12/01/2025
+      .replace(/\d{1,2}(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)\d{2,4}/gi, '') // dates like 25Jan2025
+      .replace(/\*+\d+/g, '') // masked card numbers like *1234
+      .replace(/\d{6,}/g, '') // long numbers (card numbers, refs) - 6+ digits
+      .replace(/\d{4}\s*\d{4}/g, '') // split card numbers
+      .replace(/[#*]+/g, '') // special chars
+      .replace(/\s{2,}/g, ' ') // normalize multiple spaces
       .trim();
 
     // Take first meaningful words (usually the merchant name)
-    const words = pattern.split(' ').filter((w) => w.length > 2);
+    const words = pattern.split(' ').filter((w) => w.length > 1);
+
+    // Keep up to first 3 meaningful words
     if (words.length > 3) {
       pattern = words.slice(0, 3).join(' ');
+    } else {
+      pattern = words.join(' ');
     }
 
-    return pattern.toUpperCase();
+    return pattern.toUpperCase().trim();
   }
 
   /**
