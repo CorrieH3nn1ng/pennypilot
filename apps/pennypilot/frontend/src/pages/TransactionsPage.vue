@@ -109,13 +109,26 @@
         <q-card-section>
           <q-select
             v-model="selectedCategoryId"
-            :options="allCategoryOptions"
+            :options="allCategoryOptionsWithCreate"
             label="Category"
             outlined
             emit-value
             map-options
             @update:model-value="onCategorySelected"
-          />
+          >
+            <template v-slot:option="scope">
+              <q-item v-bind="scope.itemProps">
+                <q-item-section avatar v-if="scope.opt.value === '__create__'">
+                  <q-icon name="add_circle" color="primary" />
+                </q-item-section>
+                <q-item-section>
+                  <q-item-label :class="scope.opt.value === '__create__' ? 'text-primary text-weight-medium' : ''">
+                    {{ scope.opt.label }}
+                  </q-item-label>
+                </q-item-section>
+              </q-item>
+            </template>
+          </q-select>
 
           <!-- Apply to similar transactions -->
           <div v-if="selectedCategoryId && similarCount > 0" class="q-mt-md">
@@ -143,6 +156,62 @@
             :label="applyToSimilar ? `Save (${similarCount + 1} items)` : 'Save'"
             :loading="isSaving"
             @click="saveCategory"
+          />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <!-- Quick Create Category Dialog -->
+    <q-dialog v-model="showQuickCreateDialog" persistent>
+      <q-card style="min-width: 320px">
+        <q-card-section>
+          <div class="text-h6">Quick Add Category</div>
+        </q-card-section>
+
+        <q-card-section class="q-gutter-md">
+          <q-input
+            v-model="quickCategory.name"
+            label="Category Name"
+            outlined
+            autofocus
+          />
+
+          <q-select
+            v-model="quickCategory.is_income"
+            :options="[
+              { label: 'Expense', value: false },
+              { label: 'Income', value: true },
+            ]"
+            label="Type"
+            outlined
+            emit-value
+            map-options
+          />
+
+          <div>
+            <div class="text-caption text-grey q-mb-xs">Color</div>
+            <div class="row q-gutter-xs">
+              <q-avatar
+                v-for="color in quickColorOptions"
+                :key="color"
+                :style="{ backgroundColor: color, cursor: 'pointer' }"
+                size="28px"
+                @click="quickCategory.color = color"
+              >
+                <q-icon v-if="quickCategory.color === color" name="check" color="white" size="16px" />
+              </q-avatar>
+            </div>
+          </div>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" @click="cancelQuickCreate" />
+          <q-btn
+            color="primary"
+            label="Create & Use"
+            :loading="isCreatingCategory"
+            :disable="!quickCategory.name"
+            @click="createAndUseCategory"
           />
         </q-card-actions>
       </q-card>
@@ -177,6 +246,19 @@ const matchPattern = ref('');
 const similarCount = ref(0);
 const isSaving = ref(false);
 
+// Quick create category
+const showQuickCreateDialog = ref(false);
+const isCreatingCategory = ref(false);
+const quickCategory = ref({
+  name: '',
+  color: '#1976D2',
+  is_income: false,
+});
+const quickColorOptions = [
+  '#F44336', '#E91E63', '#9C27B0', '#3F51B5',
+  '#1976D2', '#00BCD4', '#4CAF50', '#FF9800',
+];
+
 const transactions = computed(() => transactionsStore.filteredTransactions);
 
 const hasActiveFilters = computed(() => {
@@ -207,6 +289,13 @@ const allCategoryOptions = computed(() => {
   ];
 });
 
+const allCategoryOptionsWithCreate = computed(() => {
+  return [
+    { label: '+ Create New Category', value: '__create__' },
+    ...allCategoryOptions.value,
+  ];
+});
+
 // Apply filters
 watch([searchQuery, categoryFilter, categorizedFilter], () => {
   transactionsStore.setFilters({
@@ -234,7 +323,54 @@ function selectTransaction(tx: Transaction) {
 }
 
 function onCategorySelected() {
+  if (selectedCategoryId.value === '__create__') {
+    // Open quick create dialog
+    quickCategory.value = {
+      name: '',
+      color: '#1976D2',
+      is_income: selectedTransaction.value ? selectedTransaction.value.amount > 0 : false,
+    };
+    showQuickCreateDialog.value = true;
+    selectedCategoryId.value = null; // Reset selection
+    return;
+  }
   updateSimilarCount();
+}
+
+function cancelQuickCreate() {
+  showQuickCreateDialog.value = false;
+}
+
+async function createAndUseCategory() {
+  if (!quickCategory.value.name) return;
+
+  isCreatingCategory.value = true;
+
+  try {
+    const created = await categoriesStore.createCategory({
+      name: quickCategory.value.name,
+      icon: 'label',
+      color: quickCategory.value.color,
+      is_income: quickCategory.value.is_income,
+    });
+
+    if (created) {
+      $q.notify({
+        type: 'positive',
+        message: `Category "${created.name}" created`,
+      });
+      showQuickCreateDialog.value = false;
+      selectedCategoryId.value = created.id;
+      updateSimilarCount();
+    } else {
+      $q.notify({
+        type: 'negative',
+        message: categoriesStore.error || 'Failed to create category',
+      });
+    }
+  } finally {
+    isCreatingCategory.value = false;
+  }
 }
 
 function updateSimilarCount() {
