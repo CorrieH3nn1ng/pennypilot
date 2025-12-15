@@ -140,6 +140,29 @@ const CATEGORY_RULES: BuiltInCategoryRule[] = [
       'SPORTINGBET', 'LOTTOSTAR', 'PLAYABETS', 'GBETS', 'CASINO',
     ],
   },
+  {
+    categoryName: 'Business Expenses',
+    keywords: [
+      // AI & Software Tools
+      'CLAUDE AI', 'ANTHROPIC', 'OPENAI', 'CHATGPT', 'GITHUB', 'GITLAB',
+      'DIGITALOCEAN', 'AWS', 'AMAZON WEB', 'AZURE', 'GOOGLE CLOUD', 'HEROKU',
+      'VERCEL', 'NETLIFY', 'CLOUDFLARE', 'NAMECHEAP', 'GODADDY', 'HETZNER',
+      // Business Software
+      'SLACK', 'ZOOM', 'NOTION', 'TRELLO', 'ASANA', 'JIRA', 'ATLASSIAN',
+      'FIGMA', 'SKETCH', 'INVISION', 'MIRO', 'LOOM', 'CALENDLY',
+      // Accounting & Business
+      'XERO', 'QUICKBOOKS', 'FRESHBOOKS', 'SAGE', 'PAYFAST', 'YOCO',
+      'PAYPAL', 'STRIPE', 'WISE', 'PAYONEER',
+      // Office & Supplies
+      'OFFICE NATIONAL', 'WALTONS', 'MAKRO BUSINESS', 'BIDVEST',
+      // Professional Services
+      'FIVERR', 'UPWORK', 'FREELANCER', 'TOPTAL',
+      // Communication
+      'MAILCHIMP', 'SENDGRID', 'TWILIO',
+      // Stock Photos & Media
+      'SHUTTERSTOCK', 'GETTY', 'ENVATO', 'CREATIVE MARKET',
+    ],
+  },
 
   // Income categories
   {

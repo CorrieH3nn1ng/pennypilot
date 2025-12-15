@@ -28,6 +28,7 @@ class CategorySeeder extends Seeder
             ['name' => 'Domestic Help', 'icon' => 'cleaning_services', 'color' => '#8BC34A', 'is_income' => false, 'sort_order' => 14],
             ['name' => 'Rates & Taxes', 'icon' => 'home', 'color' => '#CDDC39', 'is_income' => false, 'sort_order' => 15],
             ['name' => 'Gambling/Lotto', 'icon' => 'casino', 'color' => '#FFC107', 'is_income' => false, 'sort_order' => 16],
+            ['name' => 'Business Expenses', 'icon' => 'business', 'color' => '#1976D2', 'is_income' => false, 'sort_order' => 17],
             ['name' => 'Other Expense', 'icon' => 'receipt', 'color' => '#757575', 'is_income' => false, 'sort_order' => 99],
 
             // Income
