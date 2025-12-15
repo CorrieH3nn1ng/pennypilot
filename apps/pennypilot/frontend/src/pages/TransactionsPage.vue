@@ -100,7 +100,7 @@
 
     <!-- Category Edit Dialog -->
     <q-dialog v-model="showCategoryDialog">
-      <q-card style="min-width: 300px">
+      <q-card style="min-width: 350px">
         <q-card-section>
           <div class="text-h6">Assign Category</div>
           <div class="text-caption text-grey">{{ selectedTransaction?.description }}</div>
@@ -114,12 +114,36 @@
             outlined
             emit-value
             map-options
+            @update:model-value="onCategorySelected"
           />
+
+          <!-- Apply to similar transactions -->
+          <div v-if="selectedCategoryId && similarCount > 0" class="q-mt-md">
+            <q-separator class="q-mb-md" />
+            <q-toggle
+              v-model="applyToSimilar"
+              :label="`Apply to ${similarCount} similar transaction${similarCount > 1 ? 's' : ''}`"
+            />
+            <div v-if="applyToSimilar" class="q-mt-sm">
+              <div class="text-caption text-grey q-mb-xs">Pattern to match:</div>
+              <q-input
+                v-model="matchPattern"
+                outlined
+                dense
+                hint="Transactions containing this text will be categorized"
+              />
+            </div>
+          </div>
         </q-card-section>
 
         <q-card-actions align="right">
           <q-btn flat label="Cancel" v-close-popup />
-          <q-btn color="primary" label="Save" @click="saveCategory" />
+          <q-btn
+            color="primary"
+            :label="applyToSimilar ? `Save (${similarCount + 1} items)` : 'Save'"
+            :loading="isSaving"
+            @click="saveCategory"
+          />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -130,10 +154,12 @@
 import { ref, computed, watch, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { format } from 'date-fns';
+import { useQuasar } from 'quasar';
 import { useTransactionsStore } from '@/stores/transactions.store';
 import { useCategoriesStore } from '@/stores/categories.store';
 import type { Transaction } from '@/types';
 
+const $q = useQuasar();
 const route = useRoute();
 const transactionsStore = useTransactionsStore();
 const categoriesStore = useCategoriesStore();
@@ -146,6 +172,10 @@ const categorizedFilter = ref<boolean | null>(null);
 const showCategoryDialog = ref(false);
 const selectedTransaction = ref<Transaction | null>(null);
 const selectedCategoryId = ref<string | null>(null);
+const applyToSimilar = ref(false);
+const matchPattern = ref('');
+const similarCount = ref(0);
+const isSaving = ref(false);
 
 const transactions = computed(() => transactionsStore.filteredTransactions);
 
@@ -197,16 +227,73 @@ onMounted(() => {
 function selectTransaction(tx: Transaction) {
   selectedTransaction.value = tx;
   selectedCategoryId.value = tx.category_id;
+  applyToSimilar.value = false;
+  matchPattern.value = transactionsStore.extractPattern(tx.description);
+  updateSimilarCount();
   showCategoryDialog.value = true;
 }
 
+function onCategorySelected() {
+  updateSimilarCount();
+}
+
+function updateSimilarCount() {
+  if (!selectedTransaction.value || !matchPattern.value) {
+    similarCount.value = 0;
+    return;
+  }
+
+  const similar = transactionsStore.findSimilarTransactions(
+    matchPattern.value,
+    selectedTransaction.value.local_id
+  );
+  // Only count uncategorized ones
+  similarCount.value = similar.filter((t) => !t.is_categorized).length;
+}
+
+// Update count when pattern changes
+watch(matchPattern, () => {
+  updateSimilarCount();
+});
+
 async function saveCategory() {
-  if (selectedTransaction.value) {
-    await transactionsStore.updateCategory(
+  if (!selectedTransaction.value) return;
+
+  isSaving.value = true;
+
+  try {
+    const categoryName = selectedCategoryId.value
+      ? categoriesStore.getCategoryName(selectedCategoryId.value)
+      : 'Uncategorized';
+
+    const result = await transactionsStore.applyCategoryWithRule(
       selectedTransaction.value.local_id,
-      selectedCategoryId.value
+      selectedCategoryId.value!,
+      categoryName,
+      applyToSimilar.value ? matchPattern.value : null,
+      applyToSimilar.value
     );
+
+    if (result.updated > 1) {
+      $q.notify({
+        type: 'positive',
+        message: `Categorized ${result.updated} transactions${result.ruleCreated ? ' and saved rule' : ''}`,
+      });
+    } else {
+      $q.notify({
+        type: 'positive',
+        message: 'Category updated',
+      });
+    }
+
     showCategoryDialog.value = false;
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: 'Failed to update category',
+    });
+  } finally {
+    isSaving.value = false;
   }
 }
 

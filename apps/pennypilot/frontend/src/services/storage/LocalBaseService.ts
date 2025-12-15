@@ -2,6 +2,17 @@ import Localbase from 'localbase';
 import { v4 as uuidv4 } from 'uuid';
 import type { Transaction, Category, SyncStatus } from '@/types';
 
+export interface CategoryRule {
+  id: string;
+  pattern: string; // The keyword/pattern to match
+  category_id: string;
+  category_name: string;
+  match_type: 'contains' | 'starts_with' | 'exact';
+  is_user_defined: boolean;
+  created_at: string;
+  hit_count: number; // How many times this rule was applied
+}
+
 class LocalBaseService {
   private db: Localbase;
 
@@ -148,6 +159,47 @@ class LocalBaseService {
     await this.db.collection('_meta').doc('sync').set({
       lastSyncTime: time,
     });
+  }
+
+  // ========== Category Rules ==========
+
+  async getAllCategoryRules(): Promise<CategoryRule[]> {
+    try {
+      const rules = await this.db.collection('categoryRules').get();
+      return rules || [];
+    } catch {
+      return [];
+    }
+  }
+
+  async addCategoryRule(rule: Omit<CategoryRule, 'id' | 'created_at' | 'hit_count'>): Promise<CategoryRule> {
+    const record: CategoryRule = {
+      ...rule,
+      id: uuidv4(),
+      created_at: new Date().toISOString(),
+      hit_count: 0,
+    };
+
+    await this.db.collection('categoryRules').add(record, record.id);
+    return record;
+  }
+
+  async updateCategoryRuleHitCount(ruleId: string): Promise<void> {
+    const existing = await this.db.collection('categoryRules').doc(ruleId).get();
+    if (existing) {
+      await this.db.collection('categoryRules').doc(ruleId).update({
+        hit_count: (existing.hit_count || 0) + 1,
+      });
+    }
+  }
+
+  async deleteCategoryRule(ruleId: string): Promise<void> {
+    await this.db.collection('categoryRules').doc(ruleId).delete();
+  }
+
+  async findRuleByPattern(pattern: string): Promise<CategoryRule | null> {
+    const rules = await this.getAllCategoryRules();
+    return rules.find((r) => r.pattern.toLowerCase() === pattern.toLowerCase()) || null;
   }
 
   // ========== Utilities ==========

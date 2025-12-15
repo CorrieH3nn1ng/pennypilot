@@ -1,13 +1,14 @@
 import type { Transaction, Category } from '@/types';
+import type { CategoryRule as UserCategoryRule } from '@/services/storage/LocalBaseService';
 
-interface CategoryRule {
+interface BuiltInCategoryRule {
   categoryName: string;
   keywords: string[];
   isIncome?: boolean;
 }
 
 // South African merchant keywords and patterns
-const CATEGORY_RULES: CategoryRule[] = [
+const CATEGORY_RULES: BuiltInCategoryRule[] = [
   // Expenses
   {
     categoryName: 'Groceries',
@@ -176,11 +177,13 @@ export interface CategorizationResult {
   categoryName: string | null;
   confidence: 'high' | 'medium' | 'low' | null;
   matchedKeyword: string | null;
+  ruleId?: string; // If matched by user rule
 }
 
 class CategorizationService {
   private categories: Category[] = [];
   private categoryNameToId: Map<string, string> = new Map();
+  private userRules: UserCategoryRule[] = [];
 
   /**
    * Set available categories from the store
@@ -194,7 +197,15 @@ class CategorizationService {
   }
 
   /**
+   * Set user-defined categorization rules
+   */
+  setUserRules(rules: UserCategoryRule[]): void {
+    this.userRules = rules;
+  }
+
+  /**
    * Auto-categorize a single transaction based on description
+   * User rules take priority over built-in rules
    */
   categorize(transaction: Transaction): CategorizationResult {
     const description = (transaction.description || '').toUpperCase();
@@ -204,7 +215,36 @@ class CategorizationService {
     // Determine if this is income or expense
     const isIncome = transaction.amount > 0;
 
-    // Find matching rule
+    // First, check user-defined rules (they take priority)
+    for (const rule of this.userRules) {
+      const pattern = rule.pattern.toUpperCase();
+      let matches = false;
+
+      switch (rule.match_type) {
+        case 'exact':
+          matches = description === pattern || rawDescription === pattern;
+          break;
+        case 'starts_with':
+          matches = description.startsWith(pattern) || rawDescription.startsWith(pattern);
+          break;
+        case 'contains':
+        default:
+          matches = searchText.includes(pattern);
+          break;
+      }
+
+      if (matches) {
+        return {
+          categoryId: rule.category_id,
+          categoryName: rule.category_name,
+          confidence: 'high',
+          matchedKeyword: rule.pattern,
+          ruleId: rule.id,
+        };
+      }
+    }
+
+    // Then check built-in rules
     for (const rule of CATEGORY_RULES) {
       // Skip income rules for expenses and vice versa
       if (rule.isIncome !== undefined && rule.isIncome !== isIncome) {
@@ -233,6 +273,44 @@ class CategorizationService {
       confidence: null,
       matchedKeyword: null,
     };
+  }
+
+  /**
+   * Find transactions that match a pattern
+   */
+  findSimilarTransactions(
+    transactions: Transaction[],
+    pattern: string,
+    excludeLocalId?: string
+  ): Transaction[] {
+    const upperPattern = pattern.toUpperCase();
+    return transactions.filter((tx) => {
+      if (excludeLocalId && tx.local_id === excludeLocalId) return false;
+      const desc = (tx.description || '').toUpperCase();
+      const rawDesc = (tx.raw_description || '').toUpperCase();
+      return desc.includes(upperPattern) || rawDesc.includes(upperPattern);
+    });
+  }
+
+  /**
+   * Extract a clean pattern from a transaction description
+   * Removes numbers, dates, and common noise
+   */
+  extractPattern(description: string): string {
+    // Remove common noise patterns
+    let pattern = description
+      .replace(/\d{2}[\/\-]\d{2}[\/\-]\d{2,4}/g, '') // dates
+      .replace(/\d{4,}/g, '') // long numbers (account numbers, refs)
+      .replace(/\s+/g, ' ') // normalize spaces
+      .trim();
+
+    // Take first meaningful words (usually the merchant name)
+    const words = pattern.split(' ').filter((w) => w.length > 2);
+    if (words.length > 3) {
+      pattern = words.slice(0, 3).join(' ');
+    }
+
+    return pattern.toUpperCase();
   }
 
   /**

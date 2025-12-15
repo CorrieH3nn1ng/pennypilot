@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { localBaseService } from '@/services/storage/LocalBaseService';
+import { localBaseService, type CategoryRule } from '@/services/storage/LocalBaseService';
 import { transactionsApi } from '@/services/api/transactions.api';
 import { categorizationService } from '@/services/categorization/CategorizationService';
 import type { Transaction, TransactionFilters, TransactionSummary } from '@/types';
@@ -130,6 +130,10 @@ export const useTransactionsStore = defineStore('transactions', () => {
     // Set categories in the service
     categorizationService.setCategories(categories as any);
 
+    // Load and set user rules
+    const userRules = await localBaseService.getAllCategoryRules();
+    categorizationService.setUserRules(userRules);
+
     // Get transactions to categorize
     const toProcess = onlyUncategorized
       ? transactions.value.filter((t) => !t.is_categorized)
@@ -159,11 +163,106 @@ export const useTransactionsStore = defineStore('transactions', () => {
           };
         }
 
+        // Update rule hit count if user rule was used
+        if (result.ruleId) {
+          await localBaseService.updateCategoryRuleHitCount(result.ruleId);
+        }
+
         categorized++;
       }
     }
 
     return { categorized, total: toProcess.length };
+  }
+
+  /**
+   * Find similar transactions based on a pattern
+   */
+  function findSimilarTransactions(pattern: string, excludeLocalId?: string): Transaction[] {
+    return categorizationService.findSimilarTransactions(
+      transactions.value,
+      pattern,
+      excludeLocalId
+    );
+  }
+
+  /**
+   * Extract a pattern from a transaction description
+   */
+  function extractPattern(description: string): string {
+    return categorizationService.extractPattern(description);
+  }
+
+  /**
+   * Apply category to transaction and optionally create a rule for similar transactions
+   */
+  async function applyCategoryWithRule(
+    localId: string,
+    categoryId: string,
+    categoryName: string,
+    pattern: string | null,
+    applyToSimilar: boolean
+  ): Promise<{ updated: number; ruleCreated: boolean }> {
+    let updated = 0;
+    let ruleCreated = false;
+
+    // Update the original transaction
+    await updateCategory(localId, categoryId);
+    updated++;
+
+    // If pattern provided and should apply to similar
+    if (pattern && applyToSimilar) {
+      // Create a user rule
+      await localBaseService.addCategoryRule({
+        pattern,
+        category_id: categoryId,
+        category_name: categoryName,
+        match_type: 'contains',
+        is_user_defined: true,
+      });
+      ruleCreated = true;
+
+      // Find and update similar transactions
+      const similar = findSimilarTransactions(pattern, localId);
+      const uncategorizedSimilar = similar.filter((t) => !t.is_categorized);
+
+      for (const tx of uncategorizedSimilar) {
+        await localBaseService.updateTransaction(tx.local_id, {
+          category_id: categoryId,
+          is_categorized: true,
+          categorized_by: 'auto',
+        });
+
+        // Update in memory
+        const index = transactions.value.findIndex((t) => t.local_id === tx.local_id);
+        if (index !== -1) {
+          transactions.value[index] = {
+            ...transactions.value[index],
+            category_id: categoryId,
+            is_categorized: true,
+            categorized_by: 'auto',
+          };
+        }
+
+        updated++;
+      }
+    }
+
+    return { updated, ruleCreated };
+  }
+
+  /**
+   * Get all user-defined category rules
+   */
+  async function getCategoryRules(): Promise<CategoryRule[]> {
+    return localBaseService.getAllCategoryRules();
+  }
+
+  /**
+   * Delete a user-defined category rule
+   */
+  async function deleteCategoryRule(ruleId: string): Promise<void> {
+    await localBaseService.deleteCategoryRule(ruleId);
   }
 
   async function syncToServer(): Promise<{ pushed: number; errors: number }> {
@@ -249,6 +348,11 @@ export const useTransactionsStore = defineStore('transactions', () => {
     updateCategory,
     deleteTransaction,
     autoCategorize,
+    findSimilarTransactions,
+    extractPattern,
+    applyCategoryWithRule,
+    getCategoryRules,
+    deleteCategoryRule,
     syncToServer,
     loadSummary,
     setFilters,
