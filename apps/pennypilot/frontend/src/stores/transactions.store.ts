@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import { localBaseService } from '@/services/storage/LocalBaseService';
 import { transactionsApi } from '@/services/api/transactions.api';
+import { categorizationService } from '@/services/categorization/CategorizationService';
 import type { Transaction, TransactionFilters, TransactionSummary } from '@/types';
 
 export const useTransactionsStore = defineStore('transactions', () => {
@@ -122,6 +123,49 @@ export const useTransactionsStore = defineStore('transactions', () => {
     transactions.value = transactions.value.filter((t) => t.local_id !== localId);
   }
 
+  async function autoCategorize(
+    categories: { id: string; name: string }[],
+    onlyUncategorized = true
+  ): Promise<{ categorized: number; total: number }> {
+    // Set categories in the service
+    categorizationService.setCategories(categories as any);
+
+    // Get transactions to categorize
+    const toProcess = onlyUncategorized
+      ? transactions.value.filter((t) => !t.is_categorized)
+      : transactions.value;
+
+    let categorized = 0;
+
+    for (const tx of toProcess) {
+      const result = categorizationService.categorize(tx);
+
+      if (result.categoryId) {
+        // Update in local storage
+        await localBaseService.updateTransaction(tx.local_id, {
+          category_id: result.categoryId,
+          is_categorized: true,
+          categorized_by: 'auto',
+        });
+
+        // Update in memory
+        const index = transactions.value.findIndex((t) => t.local_id === tx.local_id);
+        if (index !== -1) {
+          transactions.value[index] = {
+            ...transactions.value[index],
+            category_id: result.categoryId,
+            is_categorized: true,
+            categorized_by: 'auto',
+          };
+        }
+
+        categorized++;
+      }
+    }
+
+    return { categorized, total: toProcess.length };
+  }
+
   async function syncToServer(): Promise<{ pushed: number; errors: number }> {
     const pending = await localBaseService.getPendingSyncTransactions();
 
@@ -204,6 +248,7 @@ export const useTransactionsStore = defineStore('transactions', () => {
     importTransactions,
     updateCategory,
     deleteTransaction,
+    autoCategorize,
     syncToServer,
     loadSummary,
     setFilters,

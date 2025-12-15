@@ -107,7 +107,13 @@
           <span class="q-ml-sm text-h6">Import Successful!</span>
         </q-card-section>
         <q-card-section>
-          {{ importedCount }} transactions have been imported.
+          <div>{{ importedCount }} transactions have been imported.</div>
+          <div v-if="categorizedCount > 0" class="text-positive q-mt-sm">
+            {{ categorizedCount }} transactions were auto-categorized.
+          </div>
+          <div v-if="importedCount - categorizedCount > 0" class="text-grey q-mt-xs text-caption">
+            {{ importedCount - categorizedCount }} transactions need manual categorization.
+          </div>
         </q-card-section>
         <q-card-actions align="right">
           <q-btn flat label="View Transactions" to="/transactions" v-close-popup />
@@ -126,10 +132,12 @@ import { format } from 'date-fns';
 import { useQuasar } from 'quasar';
 import { ParserFactory } from '@/services/parsers/ParserFactory';
 import { useTransactionsStore } from '@/stores/transactions.store';
+import { useCategoriesStore } from '@/stores/categories.store';
 import type { ParseResult, BankFormat, Transaction } from '@/types';
 
 const $q = useQuasar();
 const transactionsStore = useTransactionsStore();
+const categoriesStore = useCategoriesStore();
 
 const file = ref<File | null>(null);
 const isProcessing = ref(false);
@@ -138,6 +146,7 @@ const parseResult = ref<ParseResult | null>(null);
 const detectedFormat = ref<BankFormat>('nedbank');
 const showSuccess = ref(false);
 const importedCount = ref(0);
+const categorizedCount = ref(0);
 
 async function handleFileSelect(selectedFile: File | null) {
   if (!selectedFile) {
@@ -220,6 +229,14 @@ async function importTransactions() {
 
     const count = await transactionsStore.importTransactions(transactions as Transaction[]);
     importedCount.value = count;
+
+    // Auto-categorize the newly imported transactions
+    if (count > 0) {
+      const categories = categoriesStore.categories;
+      const result = await transactionsStore.autoCategorize(categories, true);
+      categorizedCount.value = result.categorized;
+    }
+
     showSuccess.value = true;
   } catch (error) {
     $q.notify({

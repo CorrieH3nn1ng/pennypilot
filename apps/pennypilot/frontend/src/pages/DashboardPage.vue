@@ -78,7 +78,14 @@
       </template>
       You have {{ uncategorizedCount }} uncategorized transactions.
       <template v-slot:action>
-        <q-btn flat label="Categorize" to="/transactions?filter=uncategorized" />
+        <q-btn
+          flat
+          label="Auto-Categorize"
+          icon="auto_fix_high"
+          :loading="isAutoCategorizing"
+          @click="runAutoCategorize"
+        />
+        <q-btn flat label="Manual" to="/transactions?filter=uncategorized" />
       </template>
     </q-banner>
 
@@ -216,6 +223,7 @@ const accountStore = useAccountStore();
 const showBalanceDialog = ref(false);
 const newBalance = ref<number | null>(null);
 const isSaving = ref(false);
+const isAutoCategorizing = ref(false);
 
 // Computed
 const totalIncome = computed(() => transactionsStore.totalIncome);
@@ -252,6 +260,33 @@ function getCategoryIcon(id: string | null): string {
 
 function getCategoryName(id: string | null): string {
   return categoriesStore.getCategoryName(id);
+}
+
+async function runAutoCategorize() {
+  isAutoCategorizing.value = true;
+
+  try {
+    const result = await transactionsStore.autoCategorize(categoriesStore.categories, true);
+
+    if (result.categorized > 0) {
+      $q.notify({
+        type: 'positive',
+        message: `Auto-categorized ${result.categorized} of ${result.total} transactions`,
+      });
+    } else {
+      $q.notify({
+        type: 'info',
+        message: 'No transactions could be auto-categorized. Try manual categorization.',
+      });
+    }
+  } catch (error) {
+    $q.notify({
+      type: 'negative',
+      message: 'Auto-categorization failed',
+    });
+  } finally {
+    isAutoCategorizing.value = false;
+  }
 }
 
 async function saveBalance() {
