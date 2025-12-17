@@ -77,6 +77,12 @@ npm run php:test     # Run PHP tests
 - `feature/PP-XXX-description` - New features
 - `fix/PP-XXX-description` - Bug fixes
 
+## Documentation
+
+- **[Features](docs/FEATURES.md)** - Complete feature documentation
+- **[Categorization](docs/CATEGORIZATION.md)** - How transaction categorization works
+- **[Claude Context](CLAUDE.md)** - Context for Claude Code AI assistant
+
 ## License
 
 Proprietary - All rights reserved
