@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Transaction;
+use App\Services\InvoiceMatchingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -11,6 +12,20 @@ use Illuminate\Validation\Rule;
 
 class TransactionController extends Controller
 {
+    /**
+     * Generate a composite key for duplicate detection when bank_reference is NULL.
+     * Uses date + amount + description hash to create a deterministic fingerprint.
+     */
+    private function generateCompositeKey(array $data): string
+    {
+        $date = $data['transaction_date'];
+        $amount = number_format((float)($data['amount'] ?? 0), 2, '.', '');
+        $description = strtoupper(trim(substr($data['description'] ?? '', 0, 50)));
+
+        $payload = "{$date}|{$amount}|{$description}";
+        return 'COMPOSITE:' . substr(hash('sha256', $payload), 0, 16);
+    }
+
     /**
      * List transactions for the authenticated user
      */
@@ -98,7 +113,7 @@ class TransactionController extends Controller
     /**
      * Bulk store transactions (for CSV import)
      */
-    public function bulkStore(Request $request): JsonResponse
+    public function bulkStore(Request $request, InvoiceMatchingService $matchingService): JsonResponse
     {
         $validated = $request->validate([
             'transactions' => 'required|array|min:1|max:500',
@@ -115,16 +130,33 @@ class TransactionController extends Controller
         $skipped = [];
 
         foreach ($validated['transactions'] as $data) {
-            // Check for duplicate bank_reference
-            if (!empty($data['bank_reference'])) {
+            // Check for duplicate - use bank_reference if available, otherwise generate composite key
+            $bankRef = $data['bank_reference'] ?? null;
+
+            if (!empty($bankRef)) {
+                // Standard bank_reference check
                 $exists = Transaction::where('user_id', Auth::id())
-                    ->where('bank_reference', $data['bank_reference'])
+                    ->where('bank_reference', $bankRef)
                     ->exists();
 
                 if ($exists) {
-                    $skipped[] = $data['bank_reference'];
+                    $skipped[] = $bankRef;
                     continue;
                 }
+            } else {
+                // Composite key fallback for NULL references
+                $compositeKey = $this->generateCompositeKey($data);
+                $exists = Transaction::where('user_id', Auth::id())
+                    ->where('bank_reference', $compositeKey)
+                    ->exists();
+
+                if ($exists) {
+                    $skipped[] = $compositeKey;
+                    continue;
+                }
+
+                // Store composite key as bank_reference for future detection
+                $data['bank_reference'] = $compositeKey;
             }
 
             $transaction = Transaction::create([
@@ -140,14 +172,32 @@ class TransactionController extends Controller
             ];
         }
 
+        // Auto-match newly imported transactions against pending invoices
+        $invoiceMatches = [];
+        if (!empty($created)) {
+            $transactionIds = array_column($created, 'id');
+            $invoiceMatches = $matchingService->matchAgainstNewTransactions(
+                Auth::id(),
+                $transactionIds,
+                80 // Higher confidence threshold for auto-matching
+            );
+        }
+
         return response()->json([
             'data' => [
                 'created_count' => count($created),
                 'skipped_count' => count($skipped),
                 'created' => $created,
                 'skipped' => $skipped,
+                'invoice_matches' => collect($invoiceMatches)->map(fn($m) => [
+                    'invoice_id' => $m['invoice']->id,
+                    'invoice_number' => $m['invoice']->invoice_number,
+                    'transaction_id' => $m['transaction']->id,
+                    'score' => $m['score'],
+                ])->values()->all(),
             ],
-            'message' => count($created) . ' transactions imported successfully',
+            'message' => count($created) . ' transactions imported successfully' .
+                (count($invoiceMatches) > 0 ? ', ' . count($invoiceMatches) . ' invoices auto-matched' : ''),
         ], 201);
     }
 
@@ -175,6 +225,7 @@ class TransactionController extends Controller
             'description' => 'sometimes|string|max:500',
             'amount' => 'sometimes|numeric',
             'category_id' => 'nullable|uuid|exists:categories,id',
+            'is_transfer' => 'sometimes|boolean',
             'notes' => 'nullable|string',
             'tags' => 'nullable|array',
         ]);
@@ -192,6 +243,62 @@ class TransactionController extends Controller
         return response()->json([
             'data' => $transaction->fresh()->load('category:id,name,icon,color'),
             'message' => 'Transaction updated successfully',
+        ]);
+    }
+
+    /**
+     * Bulk update transactions (for syncing category/transfer changes)
+     */
+    public function bulkUpdate(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'transactions' => 'required|array|min:1|max:500',
+            'transactions.*.id' => 'required|uuid',
+            'transactions.*.category_id' => 'nullable|uuid|exists:categories,id',
+            'transactions.*.is_transfer' => 'sometimes|boolean',
+            'transactions.*.is_categorized' => 'sometimes|boolean',
+            'transactions.*.categorized_by' => 'nullable|string',
+        ]);
+
+        $updated = 0;
+        $errors = [];
+
+        foreach ($validated['transactions'] as $data) {
+            $transaction = Transaction::where('user_id', Auth::id())
+                ->where('id', $data['id'])
+                ->first();
+
+            if (!$transaction) {
+                $errors[] = $data['id'];
+                continue;
+            }
+
+            $updateData = [];
+
+            if (array_key_exists('category_id', $data)) {
+                $updateData['category_id'] = $data['category_id'];
+                $updateData['is_categorized'] = !empty($data['category_id']);
+                $updateData['categorized_by'] = !empty($data['category_id']) ? 'manual' : null;
+            }
+
+            if (array_key_exists('is_transfer', $data)) {
+                $updateData['is_transfer'] = $data['is_transfer'];
+            }
+
+            if (!empty($updateData)) {
+                $updateData['version'] = $transaction->version + 1;
+                $transaction->update($updateData);
+                $updated++;
+            }
+        }
+
+        return response()->json([
+            'data' => [
+                'updated_count' => $updated,
+                'error_count' => count($errors),
+                'errors' => $errors,
+            ],
+            'message' => $updated . ' transactions updated successfully',
         ]);
     }
 

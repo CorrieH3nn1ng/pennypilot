@@ -130,13 +130,14 @@ const CATEGORY_RULES: BuiltInCategoryRule[] = [
     categoryName: 'Rates & Taxes',
     keywords: [
       'RATES AND TAXES', 'RATES & TAXES', 'MUNICIPAL RATES', 'PROPERTY RATES',
-      'LEVIES', 'BODY CORPORATE', 'HOA', 'HOME OWNERS',
+      'LEVIES', 'LEVY', 'BODY CORPORATE', 'HOA', 'HOME OWNERS',
+      'THE ISLANDS', 'ISLANDS DE', 'SECTIONAL TITLE',
     ],
   },
   {
     categoryName: 'Gambling/Lotto',
     keywords: [
-      'LOTTO', 'ITHUBA', 'HOLLYWOODBETS', 'SUPABETS', 'BETWAY', 'SUNBET',
+      'LOTTO', 'POWERBALL', 'ITHUBA', 'HOLLYWOODBETS', 'SUPABETS', 'BETWAY', 'SUNBET',
       'SPORTINGBET', 'LOTTOSTAR', 'PLAYABETS', 'GBETS', 'CASINO',
     ],
   },
@@ -161,6 +162,46 @@ const CATEGORY_RULES: BuiltInCategoryRule[] = [
       'MAILCHIMP', 'SENDGRID', 'TWILIO',
       // Stock Photos & Media
       'SHUTTERSTOCK', 'GETTY', 'ENVATO', 'CREATIVE MARKET',
+    ],
+  },
+  {
+    categoryName: 'Toll Gates',
+    keywords: [
+      'TAP N PAY', 'TAP AND PAY', 'MACHADO', 'TOLL PLAZA', 'N1 TOLL', 'N2 TOLL',
+      'N3 TOLL', 'N4 TOLL', 'BAKWENA', 'TRAC N4', 'TRACN4', 'TRANS AFRICAN',
+      'N17 TOLL', 'WBHO TOLL',
+    ],
+  },
+  {
+    categoryName: 'Charity',
+    keywords: [
+      'ALMASCHO', 'DONATION', 'DONATE', 'CHARITY', 'NGO ', 'NON-PROFIT',
+      'NONPROFIT', 'GIFT OF GIVERS', 'RED CROSS', 'UNICEF', 'WWF',
+      'SPCA', 'TEARS ANIMAL', 'CHOC ', 'CANSA', 'HOSPICE',
+    ],
+  },
+  {
+    categoryName: 'Education',
+    keywords: [
+      'SCHOOL FEES', 'TUITION', 'UNIVERSITY', 'COLLEGE', 'VARSITY',
+      'UNISA', 'UCT', 'WITS', 'STELLENBOSCH', 'UP ', 'UJ ', 'NWU',
+      'DAMELIN', 'BOSTON', 'CTI', 'VARSITY COLLEGE', 'ROSEBANK COLLEGE',
+      'CRECHE', 'NURSERY SCHOOL', 'PRE-SCHOOL', 'PRESCHOOL',
+    ],
+  },
+  {
+    categoryName: 'Online Payments',
+    keywords: [
+      'PAYSTACK', 'PEACH PAYMENTS', 'OZOW', 'SNAPSCAN', 'ZAPPER',
+      'MOBICRED', 'PAYFLEX', 'PAYJUSTFLOW',
+    ],
+  },
+  {
+    categoryName: 'Fines',
+    keywords: [
+      'TRAFFIC FINE', 'AARTO', 'METRO POLICE', 'JMPD', 'TMPD', 'SAPS FINE',
+      'SPEEDING FINE', 'PARKING FINE', 'LICENSE RENEWAL', 'ENATIS',
+      'TRAFFIC DEPT', 'MUNICIPAL FINE', 'CITY FINE',
     ],
   },
 
@@ -190,6 +231,15 @@ const CATEGORY_RULES: BuiltInCategoryRule[] = [
     categoryName: 'Investment',
     keywords: [
       'DIVIDEND', 'UNIT TRUST', 'ETF', 'EASY EQUITIES', 'EASYEQUITIES',
+    ],
+    isIncome: true,
+  },
+  {
+    categoryName: 'Insurance Payout',
+    keywords: [
+      'OMLAC', 'OLD MUTUAL', 'LIFE INSURANCE', 'INSURANCE PAYOUT',
+      'INSURANCE CLAIM', 'LIFE PAYOUT', 'CLAIM PAYMENT', 'LIBERTY LIFE',
+      'SANLAM LIFE', 'DISCOVERY LIFE', 'MOMENTUM LIFE',
     ],
     isIncome: true,
   },
@@ -327,7 +377,8 @@ class CategorizationService {
       .replace(/\*+\d+/g, '') // masked card numbers like *1234
       .replace(/\d{6,}/g, '') // long numbers (card numbers, refs) - 6+ digits
       .replace(/\d{4}\s*\d{4}/g, '') // split card numbers
-      .replace(/[#*]+/g, '') // special chars
+      .replace(/[#]+/g, '') // remove hash symbols
+      .replace(/[_\-\.\/\\|*]+/g, ' ') // convert separators (underscore, hyphen, dot, slash, pipe, asterisk) to spaces
       .replace(/\s{2,}/g, ' ') // normalize multiple spaces
       .trim();
 

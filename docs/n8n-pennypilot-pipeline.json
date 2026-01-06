@@ -1,0 +1,254 @@
+{
+  "name": "PennyPilot AI Invoice Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pennypilot-invoice",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": false
+        }
+      },
+      "id": "node-trigger-webhook",
+      "name": "1. Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "pennypilot-invoice"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract invoice file, prompt, and user config from request\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const body = item.json.body || item.json;\n  \n  // Get the PDF file (base64 encoded)\n  const fileData = body.file || body.document || body.pdf_base64;\n  if (!fileData) {\n    throw new Error('No invoice file provided. Send as \"file\" in base64 format.');\n  }\n  \n  // Get the extraction prompt\n  const prompt = body.prompt;\n  if (!prompt) {\n    throw new Error('No extraction prompt provided. Send \"prompt\" field with AI instructions.');\n  }\n  \n  // Get metadata\n  const filename = body.filename || 'invoice.pdf';\n  const userEmail = body.user_email || null;\n  \n  // Get user's expected banking details (from their business profile)\n  const expectedBanking = body.expected_banking || null;\n  \n  // Convert base64 to buffer\n  let buffer;\n  if (typeof fileData === 'string') {\n    buffer = Buffer.from(fileData, 'base64');\n  } else if (fileData.data) {\n    buffer = Buffer.from(fileData.data, 'base64');\n  } else {\n    throw new Error('Invalid file format. Provide base64 string.');\n  }\n  \n  results.push({\n    json: {\n      prompt: prompt,\n      filename: filename,\n      user_email: userEmail,\n      expected_banking: expectedBanking,\n      received_at: new Date().toISOString()\n    },\n    binary: {\n      data: {\n        data: buffer.toString('base64'),\n        mimeType: 'application/pdf',\n        fileName: filename\n      }\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "node-extract-file",
+      "name": "2. Extract File & Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 300],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resource": "document",
+        "modelId": {
+          "__rl": true,
+          "value": "models/gemini-2.0-flash-exp",
+          "mode": "list",
+          "cachedResultName": "models/gemini-2.0-flash-exp"
+        },
+        "text": "={{ $json.prompt }}",
+        "inputType": "binary",
+        "options": {
+          "temperature": 0.1,
+          "maxOutputTokens": 4096,
+          "topP": 0.8
+        }
+      },
+      "id": "node-gemini-extract",
+      "name": "3. Gemini Document Analyzer",
+      "type": "@n8n/n8n-nodes-langchain.googleGemini",
+      "typeVersion": 1,
+      "position": [720, 300],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "gemini-api-credential",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "/**\n * PennyPilot Guardrails & SARS Compliance Validation\n * \n * Security Checks:\n * 1. Parse Gemini JSON response safely\n * 2. Validate sum(line_items) == subtotal\n * 3. Validate VAT calculation (15%)\n * 4. Convert SA currency format (R 10,00) to float (10.00)\n * 5. SARS compliance flags for invoices > R5000\n * 6. Banking details verification (user-specific)\n */\n\n// Get user's expected banking from payload (passed from frontend/database)\nconst inputMetadata = $('2. Extract File & Prompt').item.json;\nconst EXPECTED_BANK = inputMetadata.expected_banking || null;\n\nconst SA_VAT_RATE = 0.15;\nconst SARS_VAT_THRESHOLD = 5000;\n\n// Get Gemini response\nconst geminiResponse = $input.first().json;\nlet rawText;\n\n// Handle various Gemini response formats\nif (geminiResponse.parts && geminiResponse.parts[0] && geminiResponse.parts[0].text) {\n  rawText = geminiResponse.parts[0].text;\n} else if (geminiResponse.content && geminiResponse.content.parts && geminiResponse.content.parts[0]) {\n  rawText = geminiResponse.content.parts[0].text;\n} else if (geminiResponse.text) {\n  rawText = geminiResponse.text;\n} else if (geminiResponse.candidates?.[0]?.content?.parts?.[0]?.text) {\n  rawText = geminiResponse.candidates[0].content.parts[0].text;\n} else if (geminiResponse.content?.[0]?.text) {\n  rawText = geminiResponse.content[0].text;\n} else {\n  return {\n    json: {\n      success: false,\n      error: 'GEMINI_RESPONSE_ERROR',\n      error_message: 'Could not parse Gemini response structure',\n      raw_response: JSON.stringify(geminiResponse).substring(0, 500)\n    }\n  };\n}\n\n// Clean markdown if present\nrawText = String(rawText).trim()\n  .replace(/```json\\s*/gi, '')\n  .replace(/```\\s*/gi, '')\n  .replace(/^\\s*```\\s*/g, '')\n  .replace(/\\s*```\\s*$/g, '');\n\nlet extracted;\ntry {\n  extracted = JSON.parse(rawText);\n} catch (e) {\n  return {\n    json: {\n      success: false,\n      error: 'JSON_PARSE_ERROR',\n      error_message: 'Failed to parse Gemini response as JSON',\n      raw_response: rawText.substring(0, 500)\n    }\n  };\n}\n\n// === Currency Conversion ===\nfunction parseAmount(value) {\n  if (typeof value === 'number') return value;\n  if (!value) return 0;\n  \n  let cleaned = String(value);\n  cleaned = cleaned.replace(/[R\\s]/g, '');\n  \n  // Handle SA format: 15 000,00\n  if (/^[\\d\\s]+,\\d{2}$/.test(cleaned)) {\n    cleaned = cleaned.replace(/\\s/g, '').replace(',', '.');\n  }\n  \n  // Handle US format: 15,000.00\n  if (/^\\d{1,3}(,\\d{3})*(\\.\\d{2})?$/.test(cleaned)) {\n    cleaned = cleaned.replace(/,/g, '');\n  }\n  \n  return parseFloat(cleaned) || 0;\n}\n\n// === Parse Invoice ===\nconst invoice = {\n  invoice_number: extracted.invoice_number || null,\n  invoice_date: extracted.invoice_date || null,\n  due_date: extracted.due_date || null,\n  client_name: extracted.client_name || null,\n  client_email: extracted.client_email || null,\n  subtotal: parseAmount(extracted.subtotal),\n  vat_rate: parseFloat(extracted.vat_rate) || 15,\n  vat_amount: parseAmount(extracted.vat_amount),\n  amount: parseAmount(extracted.amount || extracted.total),\n  description: extracted.description || null,\n  items: [],\n  supplier_details: extracted.supplier_details || null,\n  recipient_details: extracted.recipient_details || null,\n  banking: extracted.banking || null,\n  compliance: extracted.compliance || null,\n  confidence: extracted.confidence || 0\n};\n\n// === Parse Line Items ===\nlet lineItemsTotal = 0;\nif (Array.isArray(extracted.items) || Array.isArray(extracted.line_items)) {\n  const items = extracted.items || extracted.line_items || [];\n  invoice.items = items.map((item, idx) => {\n    const qty = parseFloat(item.quantity) || 1;\n    const unitPrice = parseAmount(item.unit_price);\n    const amount = parseAmount(item.amount) || (qty * unitPrice);\n    lineItemsTotal += amount;\n    \n    return {\n      description: item.description || `Line item ${idx + 1}`,\n      quantity: qty,\n      unit_price: unitPrice,\n      amount: amount\n    };\n  });\n}\n\n// === VALIDATION CHECKS ===\nconst validationErrors = [];\nconst tolerance = 0.50; // 50 cents tolerance for rounding\n\n// Check 1: Line items sum matches subtotal\nif (invoice.items.length > 0 && invoice.subtotal > 0) {\n  const diff = Math.abs(lineItemsTotal - invoice.subtotal);\n  if (diff > tolerance) {\n    validationErrors.push({\n      check: 'LINE_ITEMS_SUM',\n      message: `Line items total (R${lineItemsTotal.toFixed(2)}) does not match subtotal (R${invoice.subtotal.toFixed(2)})`,\n      expected: invoice.subtotal,\n      actual: lineItemsTotal,\n      difference: diff\n    });\n  }\n}\n\n// Check 2: VAT calculation\nif (invoice.subtotal > 0 && invoice.vat_amount > 0) {\n  const expectedVat = invoice.subtotal * SA_VAT_RATE;\n  const vatDiff = Math.abs(expectedVat - invoice.vat_amount);\n  if (vatDiff > tolerance) {\n    validationErrors.push({\n      check: 'VAT_CALCULATION',\n      message: `VAT amount (R${invoice.vat_amount.toFixed(2)}) does not match 15% of subtotal (R${expectedVat.toFixed(2)})`,\n      expected: expectedVat,\n      actual: invoice.vat_amount,\n      difference: vatDiff\n    });\n  }\n}\n\n// Check 3: Total = Subtotal + VAT\nif (invoice.subtotal > 0 && invoice.amount > 0) {\n  const expectedTotal = invoice.subtotal + invoice.vat_amount;\n  const totalDiff = Math.abs(expectedTotal - invoice.amount);\n  if (totalDiff > tolerance) {\n    validationErrors.push({\n      check: 'TOTAL_CALCULATION',\n      message: `Total (R${invoice.amount.toFixed(2)}) does not match subtotal + VAT (R${expectedTotal.toFixed(2)})`,\n      expected: expectedTotal,\n      actual: invoice.amount,\n      difference: totalDiff\n    });\n  }\n}\n\n// Check 4: SARS compliance for invoices > R5000\nconst sarsCompliance = {\n  amount_exceeds_threshold: invoice.amount > SARS_VAT_THRESHOLD,\n  requires_recipient_vat: invoice.amount > SARS_VAT_THRESHOLD,\n  has_recipient_vat: !!(invoice.recipient_details?.vat_number),\n  has_supplier_vat: !!(invoice.supplier_details?.vat_number),\n  is_compliant: true\n};\n\nif (sarsCompliance.requires_recipient_vat && !sarsCompliance.has_recipient_vat) {\n  sarsCompliance.is_compliant = false;\n  validationErrors.push({\n    check: 'SARS_RECIPIENT_VAT',\n    message: `Invoice > R5000 requires recipient VAT number per SARS regulations`,\n    amount: invoice.amount,\n    threshold: SARS_VAT_THRESHOLD\n  });\n}\n\n// === Banking Match ===\nconst bankingMatch = {\n  is_match: false,\n  skipped: !EXPECTED_BANK,\n  expected: EXPECTED_BANK,\n  extracted: {\n    bank_name: invoice.banking?.bank || null,\n    account_number: invoice.banking?.account || null\n  }\n};\n\n// Only verify if expected banking was provided\nif (EXPECTED_BANK && EXPECTED_BANK.account_number && bankingMatch.extracted.account_number) {\n  const normalizedExtracted = String(bankingMatch.extracted.account_number).replace(/\\D/g, '');\n  const normalizedExpected = String(EXPECTED_BANK.account_number).replace(/\\D/g, '');\n  bankingMatch.is_match = normalizedExtracted === normalizedExpected;\n}\n\n// === Determine Status ===\nlet status = 'validated';\nif (validationErrors.length > 0) {\n  status = 'pending_review';\n}\n\n// === Output ===\nreturn {\n  json: {\n    success: true,\n    data: {\n      invoice_number: invoice.invoice_number,\n      invoice_date: invoice.invoice_date,\n      due_date: invoice.due_date,\n      client_name: invoice.client_name,\n      client_email: invoice.client_email,\n      amount: invoice.amount,\n      subtotal: invoice.subtotal,\n      vat_rate: invoice.vat_rate,\n      vat_amount: invoice.vat_amount,\n      description: invoice.description,\n      items: invoice.items,\n      supplier_details: invoice.supplier_details,\n      recipient_details: invoice.recipient_details,\n      banking: invoice.banking,\n      compliance: invoice.compliance,\n      confidence: invoice.confidence\n    },\n    validation: {\n      status: status,\n      errors: validationErrors,\n      line_items_total: lineItemsTotal\n    },\n    sars_compliance: sarsCompliance,\n    banking_match: bankingMatch,\n    metadata: {\n      filename: inputMetadata.filename,\n      source: 'n8n-gemini-pipeline',\n      extracted_at: new Date().toISOString()\n    }\n  }\n};"
+      },
+      "id": "node-guardrails",
+      "name": "4. Guardrails & SARS Validation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, 300],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "success-check",
+              "leftValue": "={{ $json.success }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "node-success-router",
+      "name": "5. Success Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [1200, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "node-respond-success",
+      "name": "6a. Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1440, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 422,
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "node-respond-error",
+      "name": "6b. Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1440, 400]
+    }
+  ],
+  "connections": {
+    "1. Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "2. Extract File & Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "2. Extract File & Prompt": {
+      "main": [
+        [
+          {
+            "node": "3. Gemini Document Analyzer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "6b. Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "3. Gemini Document Analyzer": {
+      "main": [
+        [
+          {
+            "node": "4. Guardrails & SARS Validation",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "6b. Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "4. Guardrails & SARS Validation": {
+      "main": [
+        [
+          {
+            "node": "5. Success Check",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "6b. Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "5. Success Check": {
+      "main": [
+        [
+          {
+            "node": "6a. Respond Success",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "6b. Respond Error",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "pinData": {},
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "tags": [
+    {
+      "id": "pennypilot",
+      "name": "PennyPilot"
+    },
+    {
+      "id": "invoices",
+      "name": "Invoices"
+    },
+    {
+      "id": "ai",
+      "name": "AI"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2025-12-23T15:00:00.000Z",
+  "versionId": "3.0.0"
+}

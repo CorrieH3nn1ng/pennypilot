@@ -19,17 +19,23 @@ return new class extends Migration
             $table->boolean('is_system')->default(false);
             $table->integer('sort_order')->default(0);
             $table->string('local_id', 100)->nullable()->index();
-            $table->enum('sync_status', ['synced', 'pending', 'conflict'])->default('synced');
+            $table->string('sync_status', 20)->default('synced'); // PostgreSQL: use string instead of enum
             $table->timestamp('last_synced_at')->nullable();
             $table->timestamps();
             $table->softDeletes();
+        });
 
+        // Self-referencing foreign key must be added after table creation (PostgreSQL requirement)
+        Schema::table('categories', function (Blueprint $table) {
             $table->foreign('parent_id')->references('id')->on('categories')->nullOnDelete();
         });
     }
 
     public function down(): void
     {
+        Schema::table('categories', function (Blueprint $table) {
+            $table->dropForeign(['parent_id']);
+        });
         Schema::dropIfExists('categories');
     }
 };

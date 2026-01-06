@@ -1,163 +1,142 @@
 <template>
-  <q-page class="q-pa-md">
-    <div class="text-h5 q-mb-md">Dashboard</div>
+  <q-page class="dashboard-page">
+    <!-- Premium Loading Experience -->
+    <PennyLoading :showing="isLoading" />
 
-    <!-- Balance Setup Banner -->
-    <q-banner v-if="!hasSetBalance" class="bg-info text-white q-mb-md" rounded>
-      <template v-slot:avatar>
-        <q-icon name="account_balance" />
-      </template>
-      Set your current bank balance to see accurate totals.
-      <template v-slot:action>
-        <q-btn flat label="Set Balance" @click="showBalanceDialog = true" />
-      </template>
-    </q-banner>
+    <!-- SURVIVAL MODE Banner (Critical Alert - Jan 5-26, 2026) -->
+    <SurvivalModeBanner />
 
-    <!-- Summary Cards -->
-    <div class="row q-col-gutter-md q-mb-lg">
-      <div class="col-12 col-sm-6 col-md-3">
-        <q-card class="dashboard-card">
-          <q-card-section>
-            <div class="text-caption text-grey">Current Balance</div>
-            <div class="text-h5" :class="calculatedBalance >= 0 ? 'text-positive' : 'text-negative'">
-              R {{ formatAmount(calculatedBalance) }}
-            </div>
-            <q-btn
-              v-if="hasSetBalance"
-              flat
-              dense
-              size="sm"
-              icon="edit"
-              class="q-mt-xs"
-              @click="showBalanceDialog = true"
-            >
-              Update
-            </q-btn>
-          </q-card-section>
-        </q-card>
-      </div>
+    <!-- Financial Snapshot (Single Consolidated Card) -->
+    <FinancialSnapshot
+      class="q-mb-sm"
+      @set-balance="showBalanceDialog = true"
+    />
 
-      <div class="col-12 col-sm-6 col-md-3">
-        <q-card class="dashboard-card">
-          <q-card-section>
-            <div class="text-caption text-grey">Total Income</div>
-            <div class="text-h5 text-positive">
-              R {{ formatAmount(totalIncome) }}
-            </div>
-          </q-card-section>
-        </q-card>
-      </div>
+    <!-- Milestone Alerts (Budget Review Reminders) -->
+    <MilestoneAlert />
 
-      <div class="col-12 col-sm-6 col-md-3">
-        <q-card class="dashboard-card">
-          <q-card-section>
-            <div class="text-caption text-grey">Total Expenses</div>
-            <div class="text-h5 text-negative">
-              R {{ formatAmount(totalExpenses) }}
-            </div>
-          </q-card-section>
-        </q-card>
-      </div>
+    <!-- Methodology-Based Budget Display -->
+    <MethodologyDisplay class="q-mb-sm" />
 
-      <div class="col-12 col-sm-6 col-md-3">
-        <q-card class="dashboard-card">
-          <q-card-section>
-            <div class="text-caption text-grey">Opening Balance</div>
-            <div class="text-h5 text-grey-8">
-              R {{ formatAmount(openingBalance) }}
-            </div>
-          </q-card-section>
-        </q-card>
-      </div>
-    </div>
+    <!-- Penny's Insight (Dismissible) -->
+    <PennyInsightCard class="q-mb-sm" />
 
-    <!-- Alerts -->
-    <q-banner v-if="uncategorizedCount > 0" class="bg-warning text-white q-mb-md" rounded>
-      <template v-slot:avatar>
-        <q-icon name="warning" />
-      </template>
-      You have {{ uncategorizedCount }} uncategorized transactions.
-      <template v-slot:action>
+    <!-- Quest Hub (Unified Quest + Alerts) -->
+    <QuestHub
+      :is-auto-categorizing="isAutoCategorizing"
+      class="q-mb-sm"
+      @auto-categorize="runAutoCategorize"
+      @open-quest="showBronzePilotQuest = true"
+      @open-interrogator="showPennyInterrogator = true"
+    />
+
+    <!-- Chart Carousel (Swipeable Data Visuals) -->
+    <ChartCarousel class="q-mb-sm" />
+
+    <!-- Recent Transactions (Compact) -->
+    <q-card
+      v-if="recentTransactions.length > 0"
+      class="transactions-card"
+      flat
+      bordered
+    >
+      <div class="transactions-header">
+        <span class="transactions-title">Recent</span>
         <q-btn
           flat
-          label="Auto-Categorize"
-          icon="auto_fix_high"
-          :loading="isAutoCategorizing"
-          @click="runAutoCategorize"
+          dense
+          size="xs"
+          color="teal"
+          label="All"
+          icon-right="chevron_right"
+          to="/transactions"
         />
-        <q-btn flat label="Manual" to="/transactions?filter=uncategorized" />
-      </template>
-    </q-banner>
-
-    <!-- Charts -->
-    <div class="row q-col-gutter-md q-mb-lg">
-      <div class="col-12 col-md-6">
-        <SpendingByCategory />
       </div>
-      <div class="col-12 col-md-6">
-        <MonthlyTrend />
-      </div>
-    </div>
 
-    <!-- Recent Transactions -->
-    <q-card class="q-mb-md">
-      <q-card-section>
-        <div class="text-h6">Recent Transactions</div>
-      </q-card-section>
-
-      <q-list separator>
-        <q-item v-for="tx in recentTransactions" :key="tx.local_id" class="transaction-item">
+      <q-list dense class="transactions-list">
+        <q-item
+          v-for="tx in recentTransactions"
+          :key="tx.local_id"
+          class="transaction-item"
+          clickable
+          :to="`/transactions?id=${tx.local_id}`"
+        >
           <q-item-section avatar>
-            <q-avatar :style="{ backgroundColor: getCategoryColor(tx.category_id) }">
-              <q-icon :name="getCategoryIcon(tx.category_id)" color="white" />
+            <q-avatar
+              size="28px"
+              :style="{ backgroundColor: getCategoryColor(tx.category_id) }"
+            >
+              <q-icon
+                :name="getCategoryIcon(tx.category_id)"
+                color="white"
+                size="14px"
+              />
             </q-avatar>
           </q-item-section>
 
           <q-item-section>
-            <q-item-label>{{ tx.description }}</q-item-label>
-            <q-item-label caption>
-              {{ formatDate(tx.transaction_date) }} - {{ getCategoryName(tx.category_id) }}
-            </q-item-label>
+            <q-item-label class="tx-desc">{{ tx.description }}</q-item-label>
           </q-item-section>
 
           <q-item-section side>
-            <q-item-label :class="tx.amount >= 0 ? 'text-positive' : 'text-negative'">
-              {{ tx.amount >= 0 ? '+' : '' }}R {{ formatAmount(Math.abs(tx.amount)) }}
-            </q-item-label>
-          </q-item-section>
-        </q-item>
-
-        <q-item v-if="recentTransactions.length === 0">
-          <q-item-section>
-            <q-item-label class="text-grey text-center">
-              No transactions yet. Import a CSV to get started.
+            <q-item-label
+              class="tx-amount"
+              :class="Number(tx.amount) >= 0 ? 'text-positive' : 'text-negative'"
+            >
+              {{ Number(tx.amount) >= 0 ? '+' : '' }}{{ configStore.currencySymbol }} {{ formatCompact(tx.amount) }}
             </q-item-label>
           </q-item-section>
         </q-item>
       </q-list>
-
-      <q-card-actions v-if="recentTransactions.length > 0">
-        <q-btn flat color="primary" to="/transactions">View All Transactions</q-btn>
-      </q-card-actions>
     </q-card>
 
-    <!-- Quick Actions -->
-    <div class="row q-col-gutter-md">
-      <div class="col-6">
-        <q-btn color="primary" class="full-width" to="/import" icon="upload_file" label="Import CSV" />
-      </div>
-      <div class="col-6">
-        <q-btn outline color="primary" class="full-width" to="/transactions" icon="add" label="Add Transaction" />
-      </div>
-    </div>
+    <!-- Primary Action FAB (QPageSticky) -->
+    <q-page-sticky position="bottom-right" :offset="[16, 72]">
+      <q-btn
+        fab
+        color="primary"
+        icon="add"
+        class="action-fab"
+      >
+        <q-menu anchor="top right" self="bottom right">
+          <q-list dense style="min-width: 180px">
+            <q-item clickable v-close-popup to="/import">
+              <q-item-section avatar>
+                <q-icon name="upload_file" color="teal" />
+              </q-item-section>
+              <q-item-section>Import CSV</q-item-section>
+            </q-item>
+            <q-item clickable v-close-popup to="/transactions?add=true">
+              <q-item-section avatar>
+                <q-icon name="edit" color="teal" />
+              </q-item-section>
+              <q-item-section>Add Transaction</q-item-section>
+            </q-item>
+            <q-separator />
+            <q-item clickable v-close-popup @click="showPennyInterrogator = true">
+              <q-item-section avatar>
+                <q-icon name="psychology" color="teal" />
+              </q-item-section>
+              <q-item-section>Assign Buckets</q-item-section>
+            </q-item>
+          </q-list>
+        </q-menu>
+      </q-btn>
+    </q-page-sticky>
+
+    <!-- Bronze Pilot Quest Modal -->
+    <BronzePilotQuest v-model="showBronzePilotQuest" />
+
+    <!-- Penny Interrogator (Bucket Assignment) -->
+    <PennyInterrogator v-model="showPennyInterrogator" />
 
     <!-- Set Balance Dialog -->
     <q-dialog v-model="showBalanceDialog" persistent>
-      <q-card style="min-width: 350px">
-        <q-card-section>
-          <div class="text-h6">Set Current Balance</div>
+      <q-card class="balance-dialog">
+        <q-card-section class="q-pb-none">
+          <div class="text-subtitle1 text-weight-bold">Set Current Balance</div>
           <div class="text-caption text-grey">
-            Enter your current bank balance to calculate the correct opening balance.
+            Enter your bank balance to calculate opening balance.
           </div>
         </q-card-section>
 
@@ -166,34 +145,36 @@
             v-model.number="newBalance"
             type="number"
             label="Current Bank Balance"
-            prefix="R"
+            :prefix="configStore.currencySymbol"
             outlined
+            dense
             autofocus
-            :rules="[(v) => v !== null && v !== '' || 'Balance is required']"
+            :rules="[(v) => v !== null && v !== '' || 'Required']"
           />
 
-          <div v-if="newBalance" class="q-mt-md text-body2">
+          <div v-if="newBalance" class="q-mt-sm text-caption">
             <div class="row justify-between">
-              <span>Your bank balance:</span>
-              <span class="text-weight-medium">R {{ formatAmount(newBalance || 0) }}</span>
+              <span>Bank balance:</span>
+              <span>{{ configStore.currencySymbol }} {{ formatAmount(newBalance || 0) }}</span>
             </div>
             <div class="row justify-between">
-              <span>Sum of transactions:</span>
-              <span>R {{ formatAmount(transactionSum) }}</span>
+              <span>Transaction sum:</span>
+              <span>{{ configStore.currencySymbol }} {{ formatAmount(transactionSum) }}</span>
             </div>
-            <q-separator class="q-my-sm" />
+            <q-separator class="q-my-xs" />
             <div class="row justify-between text-weight-bold">
-              <span>Calculated opening balance:</span>
-              <span>R {{ formatAmount((newBalance || 0) - transactionSum) }}</span>
+              <span>Opening balance:</span>
+              <span>{{ configStore.currencySymbol }} {{ formatAmount((newBalance || 0) - transactionSum) }}</span>
             </div>
           </div>
         </q-card-section>
 
-        <q-card-actions align="right">
-          <q-btn flat label="Cancel" v-close-popup />
+        <q-card-actions align="right" class="q-pt-none">
+          <q-btn flat label="Cancel" size="sm" v-close-popup />
           <q-btn
             color="primary"
-            label="Save Balance"
+            label="Save"
+            size="sm"
             :loading="isSaving"
             :disable="!newBalance"
             @click="saveBalance"
@@ -201,53 +182,107 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <!-- Balance Confirmation Modal (Balancing Engine) -->
+    <BalanceConfirmationModal
+      v-model="showBalanceConfirmation"
+      :derived-balance="derivedBalance"
+      :current-balance="newBalance || 0"
+      :total-inflows="totalInflows"
+      :total-outflows="totalOutflows"
+      :transaction-count="transactionCount"
+      :date-range="dateRange"
+      :user-provided-balance="accountStore.openingBalance"
+      :is-free-user="userStore.isFreeUser"
+      @confirm="onBalanceConfirmed"
+      @manual-entry="onManualBalanceEntry"
+    />
   </q-page>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue';
-import { format } from 'date-fns';
+import { ref, computed, onMounted, watch } from 'vue';
 import { useQuasar } from 'quasar';
 import { useTransactionsStore } from '@/stores/transactions.store';
 import { useCategoriesStore } from '@/stores/categories.store';
 import { useAccountStore } from '@/stores/account.store';
-import SpendingByCategory from '@/components/charts/SpendingByCategory.vue';
-import MonthlyTrend from '@/components/charts/MonthlyTrend.vue';
+import { useBudgetStore } from '@/stores/budget.store';
+import { useIncomeStore } from '@/stores/income.store';
+import { useUserStore } from '@/stores/user.store';
+import { useConfigStore } from '@/stores/config.store';
+import { useQuestStore } from '@/modules/gamification/stores/quest.store';
+import { getDerivedOpeningBalance } from '@/services/balancing/BalancingEngine';
+
+// Components
+import PennyLoading from '@/components/PennyLoading.vue';
+import FinancialSnapshot from '@/components/dashboard/FinancialSnapshot.vue';
+import MethodologyDisplay from '@/components/dashboard/MethodologyDisplay.vue';
+import PennyInsightCard from '@/components/PennyInsightCard.vue';
+import QuestHub from '@/components/dashboard/QuestHub.vue';
+import ChartCarousel from '@/components/dashboard/ChartCarousel.vue';
+import BronzePilotQuest from '@/modules/gamification/components/BronzePilotQuest.vue';
+import PennyInterrogator from '@/components/PennyInterrogator.vue';
+import BalanceConfirmationModal from '@/components/BalanceConfirmationModal.vue';
+import MilestoneAlert from '@/components/dashboard/MilestoneAlert.vue';
+import SurvivalModeBanner from '@/components/dashboard/SurvivalModeBanner.vue';
 
 const $q = useQuasar();
 const transactionsStore = useTransactionsStore();
 const categoriesStore = useCategoriesStore();
 const accountStore = useAccountStore();
+const budgetStore = useBudgetStore();
+const incomeStore = useIncomeStore();
+const userStore = useUserStore();
+const configStore = useConfigStore();
+const questStore = useQuestStore();
 
-// Balance dialog state
+// Loading state
+const isLoading = ref(true);
+
+// Dialog state
 const showBalanceDialog = ref(false);
+const showBalanceConfirmation = ref(false);
+const showBronzePilotQuest = ref(false);
+const showPennyInterrogator = ref(false);
 const newBalance = ref<number | null>(null);
 const isSaving = ref(false);
 const isAutoCategorizing = ref(false);
 
+// Balancing engine computed values
+const balancingResult = computed(() => {
+  if (!newBalance.value) return null;
+  return getDerivedOpeningBalance(newBalance.value, transactionsStore.transactions);
+});
+
+const derivedBalance = computed(() => balancingResult.value?.derivedOpeningBalance ?? 0);
+const totalInflows = computed(() => balancingResult.value?.totalInflows ?? 0);
+const totalOutflows = computed(() => balancingResult.value?.totalOutflows ?? 0);
+const transactionCount = computed(() => balancingResult.value?.transactionCount ?? 0);
+const dateRange = computed(() => balancingResult.value?.dateRange ?? { earliest: null, latest: null });
+
 // Computed
-const totalIncome = computed(() => transactionsStore.totalIncome);
-const totalExpenses = computed(() => transactionsStore.totalExpenses);
-const uncategorizedCount = computed(() => transactionsStore.uncategorizedCount);
-const openingBalance = computed(() => accountStore.openingBalance);
-const calculatedBalance = computed(() => accountStore.calculatedBalance);
-const hasSetBalance = computed(() => accountStore.hasSetBalance);
 const transactionSum = computed(() => accountStore.transactionSum);
 
 const recentTransactions = computed(() => {
-  return transactionsStore.filteredTransactions.slice(0, 10);
+  return transactionsStore.filteredTransactions.slice(0, 7);
 });
 
 // Methods
-function formatAmount(amount: number): string {
-  return amount.toLocaleString('en-ZA', {
+function formatAmount(amount: number | string): string {
+  const num = Number(amount) || 0;
+  return num.toLocaleString('en-ZA', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
 }
 
-function formatDate(dateStr: string): string {
-  return format(new Date(dateStr), 'dd MMM yyyy');
+function formatCompact(amount: number | string): string {
+  // Full precision for institutional trust - no abbreviations
+  const num = Number(amount) || 0;
+  return Math.abs(num).toLocaleString('en-ZA', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 function getCategoryColor(id: string | null): string {
@@ -258,31 +293,35 @@ function getCategoryIcon(id: string | null): string {
   return categoriesStore.getCategoryIcon(id);
 }
 
-function getCategoryName(id: string | null): string {
-  return categoriesStore.getCategoryName(id);
-}
-
 async function runAutoCategorize() {
   isAutoCategorizing.value = true;
 
   try {
-    const result = await transactionsStore.autoCategorize(categoriesStore.categories, true);
+    const result = await transactionsStore.autoCategorize(
+      categoriesStore.categories,
+      true
+    );
 
     if (result.categorized > 0) {
       $q.notify({
         type: 'positive',
-        message: `Auto-categorized ${result.categorized} of ${result.total} transactions`,
+        message: `Auto-categorized ${result.categorized} transactions`,
+        position: 'bottom',
+        timeout: 2000,
       });
     } else {
       $q.notify({
         type: 'info',
-        message: 'No transactions could be auto-categorized. Try manual categorization.',
+        message: 'No transactions could be auto-categorized',
+        position: 'bottom',
+        timeout: 2000,
       });
     }
-  } catch (error) {
+  } catch {
     $q.notify({
       type: 'negative',
       message: 'Auto-categorization failed',
+      position: 'bottom',
     });
   } finally {
     isAutoCategorizing.value = false;
@@ -292,6 +331,14 @@ async function runAutoCategorize() {
 async function saveBalance() {
   if (!newBalance.value) return;
 
+  // If we have transactions, show the confirmation modal with derived balance
+  if (transactionsStore.transactions.length > 0) {
+    showBalanceDialog.value = false;
+    showBalanceConfirmation.value = true;
+    return;
+  }
+
+  // No transactions - just save directly
   isSaving.value = true;
 
   const success = await accountStore.setBalance(newBalance.value);
@@ -299,27 +346,144 @@ async function saveBalance() {
   if (success) {
     $q.notify({
       type: 'positive',
-      message: 'Balance updated successfully',
+      message: 'Balance updated',
+      position: 'bottom',
+      timeout: 2000,
     });
     showBalanceDialog.value = false;
     newBalance.value = null;
   } else {
     $q.notify({
       type: 'negative',
-      message: accountStore.error || 'Failed to update balance',
+      message: accountStore.error || 'Failed to update',
+      position: 'bottom',
     });
   }
 
   isSaving.value = false;
 }
 
+// Balance confirmation modal handlers
+async function onBalanceConfirmed(balance: number) {
+  isSaving.value = true;
+
+  const success = await accountStore.setBalance(balance);
+
+  if (success) {
+    $q.notify({
+      type: 'positive',
+      message: 'Opening balance set successfully',
+      position: 'bottom',
+      timeout: 2000,
+    });
+    showBalanceConfirmation.value = false;
+    newBalance.value = null;
+  } else {
+    $q.notify({
+      type: 'negative',
+      message: accountStore.error || 'Failed to update balance',
+      position: 'bottom',
+    });
+  }
+
+  isSaving.value = false;
+}
+
+function onManualBalanceEntry() {
+  // Go back to manual entry dialog
+  showBalanceConfirmation.value = false;
+  showBalanceDialog.value = true;
+}
+
 onMounted(async () => {
-  await accountStore.loadAccount();
+  try {
+    await Promise.all([
+      accountStore.loadAccount(),
+      budgetStore.loadCurrentBudget(),
+      incomeStore.loadIncomeSources(),
+      questStore.loadPersona(),
+    ]);
+  } finally {
+    isLoading.value = false;
+  }
 });
 </script>
 
 <style scoped>
-.dashboard-card {
+.dashboard-page {
+  padding: 12px;
+  padding-bottom: 80px;
+  background: #FAFAFA;
+}
+
+/* Transactions Card */
+.transactions-card {
   border-radius: 12px;
+  border-color: #B2DFDB;
+}
+
+.transactions-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: #FAFAFA;
+  border-bottom: 1px solid #ECEFF1;
+}
+
+.transactions-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #78909C;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.transactions-list {
+  padding: 0;
+}
+
+.transaction-item {
+  min-height: 40px;
+  padding: 6px 12px;
+  border-bottom: 1px solid #F5F5F5;
+}
+
+.transaction-item:last-child {
+  border-bottom: none;
+}
+
+.tx-desc {
+  font-size: 13px;
+  color: #37474F;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.tx-amount {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* Action FAB */
+.action-fab {
+  box-shadow: 0 4px 16px rgba(0, 77, 64, 0.35);
+}
+
+/* Balance Dialog */
+.balance-dialog {
+  min-width: 300px;
+  border-radius: 12px;
+}
+
+/* Text colors */
+.text-positive {
+  color: #2E7D32;
+}
+
+.text-negative {
+  color: #C62828;
 }
 </style>

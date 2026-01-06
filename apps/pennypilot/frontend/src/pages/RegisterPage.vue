@@ -126,7 +126,8 @@ async function onSubmit() {
     password_confirmation: passwordConfirmation.value,
   });
   if (success) {
-    router.push('/');
+    // New users go to onboarding wizard
+    router.push('/onboarding');
   }
 }
 </script>

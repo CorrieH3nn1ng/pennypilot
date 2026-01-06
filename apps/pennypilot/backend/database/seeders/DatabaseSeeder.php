@@ -15,13 +15,12 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        // MUST run first - users table has FK to country_configs
+        $this->call(CountryConfigSeeder::class);
+
         // Seed default categories
         $this->call(CategorySeeder::class);
 
-        // Create test user
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
+        // Note: No test user created - users should register through the app
     }
 }

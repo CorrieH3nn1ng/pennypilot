@@ -66,9 +66,21 @@ class ApiClient {
     return response.data.data;
   }
 
+  // For endpoints that return custom response structures (not wrapped in { data: ... })
+  async getRaw<T>(url: string, params?: Record<string, unknown>): Promise<T> {
+    const response = await this.client.get<T>(url, { params });
+    return response.data;
+  }
+
   async post<T>(url: string, data?: unknown): Promise<T> {
     const response = await this.client.post<ApiResponse<T>>(url, data);
     return response.data.data;
+  }
+
+  // For POST endpoints that return custom response structures (not wrapped in { data: ... })
+  async postRaw<T>(url: string, data?: unknown): Promise<T> {
+    const response = await this.client.post<T>(url, data);
+    return response.data;
   }
 
   async put<T>(url: string, data?: unknown): Promise<T> {
@@ -78,6 +90,43 @@ class ApiClient {
 
   async delete(url: string): Promise<void> {
     await this.client.delete(url);
+  }
+
+  // For PUT endpoints that return custom response structures (not wrapped in { data: ... })
+  async putRaw<T>(url: string, data?: unknown): Promise<T> {
+    const response = await this.client.put<T>(url, data);
+    return response.data;
+  }
+
+  // Download a file (e.g., PDF) as a Blob
+  async downloadFile(url: string): Promise<Blob> {
+    const response = await this.client.get(url, {
+      responseType: 'blob',
+    });
+    return response.data as Blob;
+  }
+
+  async postFormData<T>(url: string, formData: FormData): Promise<T> {
+    const response = await this.client.post<ApiResponse<T>>(url, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data.data;
+  }
+
+  // For FormData POST endpoints that return custom response structures (not wrapped in { data: ... })
+  async postFormDataRaw<T>(url: string, formData: FormData): Promise<T> {
+    const response = await this.client.post<T>(url, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  }
+
+  getBaseUrl(): string {
+    return API_URL;
   }
 }
 

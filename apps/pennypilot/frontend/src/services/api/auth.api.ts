@@ -1,5 +1,10 @@
 import { apiClient } from './client';
-import type { AuthResponse, User } from '@/types';
+import type { AuthResponse, User, IncomeType } from '@/types';
+
+export interface UpdateIncomeSettingsData {
+  income_type: IncomeType;
+  net_monthly_income?: number | null;
+}
 
 export const authApi = {
   async register(data: {
@@ -42,5 +47,15 @@ export const authApi = {
       password: newPassword,
       password_confirmation: newPassword,
     });
+  },
+
+  async updateSubscription(subscriptionTier: 'free' | 'premium'): Promise<User> {
+    return apiClient.put<User>('/auth/subscription', {
+      subscription_tier: subscriptionTier,
+    });
+  },
+
+  async updateIncomeSettings(data: UpdateIncomeSettingsData): Promise<User> {
+    return apiClient.put<User>('/auth/income-settings', data);
   },
 };

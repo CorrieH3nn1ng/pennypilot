@@ -38,7 +38,7 @@ class AuthController extends Controller
 
         return response()->json([
             'data' => [
-                'user' => $user,
+                'user' => $this->formatUserResponse($user),
                 'token' => $token,
             ],
             'message' => 'Registration successful',
@@ -66,7 +66,7 @@ class AuthController extends Controller
 
         return response()->json([
             'data' => [
-                'user' => $user,
+                'user' => $this->formatUserResponse($user),
                 'token' => $token,
             ],
             'message' => 'Login successful',
@@ -90,9 +90,24 @@ class AuthController extends Controller
      */
     public function user(Request $request): JsonResponse
     {
+        $user = $request->user();
         return response()->json([
-            'data' => $request->user(),
+            'data' => $this->formatUserResponse($user),
         ]);
+    }
+
+    /**
+     * Format user response with computed properties
+     */
+    private function formatUserResponse(User $user): array
+    {
+        return [
+            ...$user->toArray(),
+            'is_premium' => $user->isPremium(),
+            'is_admin' => $user->isAdmin(),
+            'persona' => $user->getPersonaFeatures(),
+            'onboarding_completed' => $user->onboarding_completed_at !== null,
+        ];
     }
 
     /**
@@ -107,9 +122,30 @@ class AuthController extends Controller
 
         $request->user()->update($validated);
 
+        $user = $request->user()->fresh();
+
         return response()->json([
-            'data' => $request->user()->fresh(),
+            'data' => $this->formatUserResponse($user),
             'message' => 'Profile updated successfully',
+        ]);
+    }
+
+    /**
+     * Update income settings (income type and net monthly income)
+     */
+    public function updateIncomeSettings(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'income_type' => 'required|in:self_employed,salaried',
+            'net_monthly_income' => 'nullable|numeric|min:0',
+        ]);
+
+        $user = $request->user();
+        $user->update($validated);
+
+        return response()->json([
+            'data' => $this->formatUserResponse($user->fresh()),
+            'message' => 'Income settings updated successfully',
         ]);
     }
 
@@ -135,6 +171,34 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Password changed successfully',
+        ]);
+    }
+
+    /**
+     * Update subscription tier (admin only)
+     */
+    public function updateSubscription(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        // Only admins can change their subscription
+        if (!$user->isAdmin()) {
+            return response()->json([
+                'message' => 'Unauthorized. Admin access required.',
+            ], 403);
+        }
+
+        $validated = $request->validate([
+            'subscription_tier' => 'required|in:free,premium',
+        ]);
+
+        $user->update([
+            'subscription_tier' => $validated['subscription_tier'],
+        ]);
+
+        return response()->json([
+            'data' => $this->formatUserResponse($user->fresh()),
+            'message' => 'Subscription updated successfully',
         ]);
     }
 }

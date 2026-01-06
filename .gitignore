@@ -46,3 +46,4 @@ composer.lock
 # Misc
 *.bak
 *.tmp
+nul

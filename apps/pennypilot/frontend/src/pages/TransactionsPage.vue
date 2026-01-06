@@ -18,7 +18,25 @@
         </q-badge>
       </q-tab>
       <q-tab name="categorized" label="Categorized" />
+      <q-tab name="income">
+        <span>Income</span>
+        <q-badge v-if="unmatchedIncomeCount > 0" color="blue" class="q-ml-sm">
+          {{ unmatchedIncomeCount }}
+        </q-badge>
+      </q-tab>
+      <q-tab name="transfers" label="Transfers" />
     </q-tabs>
+
+    <!-- Income Tab Header -->
+    <q-banner v-if="quickTab === 'income'" class="bg-blue-1 q-mb-md" rounded>
+      <template v-slot:avatar>
+        <q-icon name="payments" color="blue" />
+      </template>
+      <div class="text-body2">
+        <strong>{{ unmatchedIncomeCount }}</strong> income transactions not linked to invoices.
+        Link them to track which payments match your invoices.
+      </div>
+    </q-banner>
 
     <!-- Monthly Summary Cards -->
     <div v-if="quickTab !== 'uncategorized' && !selectedMonth" class="row q-col-gutter-sm q-mb-md">
@@ -33,11 +51,11 @@
             <div class="row justify-between q-mt-xs">
               <div>
                 <div class="text-caption text-grey">Income</div>
-                <div class="text-positive text-weight-medium">+R {{ formatCompact(month.income) }}</div>
+                <div class="text-positive text-weight-medium">+{{ configStore.currencySymbol }} {{ formatCompact(month.income) }}</div>
               </div>
               <div class="text-right">
                 <div class="text-caption text-grey">Expenses</div>
-                <div class="text-negative text-weight-medium">-R {{ formatCompact(month.expenses) }}</div>
+                <div class="text-negative text-weight-medium">-{{ configStore.currencySymbol }} {{ formatCompact(month.expenses) }}</div>
               </div>
             </div>
             <div class="text-caption text-grey q-mt-xs">{{ month.count }} transactions</div>
@@ -101,51 +119,15 @@
       </q-card>
     </q-slide-transition>
 
-    <!-- Transaction List -->
-    <q-list separator>
-      <q-item
-        v-for="tx in transactions"
-        :key="tx.local_id"
-        clickable
-        @click="selectTransaction(tx)"
-      >
-        <q-item-section avatar>
-          <q-avatar :style="{ backgroundColor: getCategoryColor(tx.category_id) }">
-            <q-icon :name="getCategoryIcon(tx.category_id)" color="white" />
-          </q-avatar>
-        </q-item-section>
-
-        <q-item-section>
-          <q-item-label>{{ tx.description }}</q-item-label>
-          <q-item-label caption>
-            {{ formatDate(tx.transaction_date) }}
-            <q-chip
-              v-if="!tx.is_categorized"
-              size="sm"
-              color="warning"
-              text-color="white"
-              dense
-            >
-              Uncategorized
-            </q-chip>
-          </q-item-label>
-        </q-item-section>
-
-        <q-item-section side>
-          <q-item-label :class="tx.amount >= 0 ? 'text-positive' : 'text-negative'">
-            {{ tx.amount >= 0 ? '+' : '' }}R {{ formatAmount(Math.abs(tx.amount)) }}
-          </q-item-label>
-        </q-item-section>
-      </q-item>
-
-      <q-item v-if="transactions.length === 0">
-        <q-item-section class="text-center text-grey q-py-xl">
-          <q-icon name="receipt_long" size="48px" class="q-mb-md" />
-          <div>No transactions found</div>
-          <q-btn flat color="primary" label="Import CSV" to="/import" class="q-mt-md" />
-        </q-item-section>
-      </q-item>
-    </q-list>
+    <!-- Transaction List with Swipe Actions -->
+    <TransactionList
+      :transactions="transactions"
+      @confirm="onTransactionConfirm"
+      @edit="onTransactionEdit"
+      @create-category="openQuickCreateFromList"
+      @category-saved="onCategorySaved"
+      @flag-for-accountant="onFlagForAccountant"
+    />
 
     <!-- Category Edit Dialog -->
     <q-dialog v-model="showCategoryDialog">
@@ -178,6 +160,18 @@
               </q-item>
             </template>
           </q-select>
+
+          <!-- Transfer toggle -->
+          <q-toggle
+            v-model="isTransfer"
+            class="q-mt-md"
+            label="Mark as internal transfer"
+            color="orange"
+          >
+            <q-tooltip>
+              Transfers between your accounts are excluded from income/expense totals
+            </q-tooltip>
+          </q-toggle>
 
           <!-- Apply to similar transactions -->
           <div v-if="selectedCategoryId && similarCount > 0" class="q-mt-md">
@@ -265,6 +259,13 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <!-- Flag for Accountant Dialog -->
+    <FlagForAccountantDialog
+      v-model="showFlagDialog"
+      :transaction="transactionToFlag"
+      @flagged="onTransactionFlagged"
+    />
   </q-page>
 </template>
 
@@ -275,12 +276,16 @@ import { format, parseISO, startOfMonth, endOfMonth } from 'date-fns';
 import { useQuasar } from 'quasar';
 import { useTransactionsStore } from '@/stores/transactions.store';
 import { useCategoriesStore } from '@/stores/categories.store';
+import { useConfigStore } from '@/stores/config.store';
+import TransactionList from '@/components/TransactionList.vue';
+import FlagForAccountantDialog from '@/components/FlagForAccountantDialog.vue';
 import type { Transaction } from '@/types';
 
 const $q = useQuasar();
 const route = useRoute();
 const transactionsStore = useTransactionsStore();
 const categoriesStore = useCategoriesStore();
+const configStore = useConfigStore();
 
 const showFilters = ref(false);
 const searchQuery = ref('');
@@ -292,6 +297,7 @@ const selectedMonth = ref<string | null>(null);
 const showCategoryDialog = ref(false);
 const selectedTransaction = ref<Transaction | null>(null);
 const selectedCategoryId = ref<string | null>(null);
+const isTransfer = ref(false);
 const applyToSimilar = ref(false);
 const matchPattern = ref('');
 const similarCount = ref(0);
@@ -310,8 +316,27 @@ const quickColorOptions = [
   '#1976D2', '#00BCD4', '#4CAF50', '#FF9800',
 ];
 
+// Flag for accountant
+const showFlagDialog = ref(false);
+const transactionToFlag = ref<Transaction | null>(null);
+
 const transactions = computed(() => transactionsStore.filteredTransactions);
 const uncategorizedCount = computed(() => transactionsStore.uncategorizedCount);
+
+// Income transactions (positive amounts, not linked to invoice)
+const incomeTransactions = computed(() => {
+  return transactionsStore.transactions.filter(t => Number(t.amount) > 0);
+});
+
+const unmatchedIncomeCount = computed(() => {
+  // Count income transactions that are not transfers and could be invoice payments
+  return incomeTransactions.value.filter(t => !t.is_transfer).length;
+});
+
+// Transfer transactions
+const transferTransactions = computed(() => {
+  return transactionsStore.transactions.filter(t => t.is_transfer);
+});
 
 const hasActiveFilters = computed(() => {
   return searchQuery.value || categoryFilter.value;
@@ -344,10 +369,11 @@ const monthlyTotals = computed<MonthlyTotal[]>(() => {
     }
 
     const data = grouped.get(monthKey)!;
-    if (t.amount >= 0) {
-      data.income += t.amount;
+    const amount = Number(t.amount) || 0;
+    if (amount >= 0) {
+      data.income += amount;
     } else {
-      data.expenses += Math.abs(t.amount);
+      data.expenses += Math.abs(amount);
     }
     data.count++;
   });
@@ -418,23 +444,49 @@ watch(quickTab, (newTab) => {
   // Clear month filter when switching tabs
   selectedMonth.value = null;
 
+  // Set up custom filtering based on tab
   switch (newTab) {
     case 'uncategorized':
       categorizedFilter.value = false;
+      transactionsStore.setFilters({
+        searchQuery: searchQuery.value,
+        categoryId: categoryFilter.value,
+        isCategorized: false,
+        startDate: null,
+        endDate: null,
+      });
       break;
     case 'categorized':
       categorizedFilter.value = true;
+      transactionsStore.setFilters({
+        searchQuery: searchQuery.value,
+        categoryId: categoryFilter.value,
+        isCategorized: true,
+        startDate: null,
+        endDate: null,
+      });
+      break;
+    case 'income':
+      categorizedFilter.value = null;
+      // Custom filter: only positive amounts (income)
+      transactionsStore.setCustomFilter((t) => Number(t.amount) > 0 && !t.is_transfer);
+      break;
+    case 'transfers':
+      categorizedFilter.value = null;
+      // Custom filter: only transfers
+      transactionsStore.setCustomFilter((t) => t.is_transfer === true);
       break;
     default:
       categorizedFilter.value = null;
+      transactionsStore.setFilters({
+        searchQuery: searchQuery.value,
+        categoryId: categoryFilter.value,
+        isCategorized: null,
+        startDate: null,
+        endDate: null,
+      });
+      transactionsStore.clearCustomFilter();
   }
-  transactionsStore.setFilters({
-    searchQuery: searchQuery.value,
-    categoryId: categoryFilter.value,
-    isCategorized: categorizedFilter.value,
-    startDate: null,
-    endDate: null,
-  });
 });
 
 // Handle URL filter parameter
@@ -471,23 +523,64 @@ function clearMonthFilter() {
   });
 }
 
-function formatCompact(amount: number): string {
-  if (amount >= 1000000) {
-    return (amount / 1000000).toFixed(1) + 'M';
-  }
-  if (amount >= 1000) {
-    return (amount / 1000).toFixed(1) + 'K';
-  }
-  return amount.toFixed(0);
+function formatCompact(amount: number | string): string {
+  // Full precision for institutional trust - no abbreviations
+  const num = Number(amount) || 0;
+  return Math.abs(num).toLocaleString('en-ZA', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 function selectTransaction(tx: Transaction) {
   selectedTransaction.value = tx;
   selectedCategoryId.value = tx.category_id;
+  isTransfer.value = tx.is_transfer || false;
   applyToSimilar.value = false;
   matchPattern.value = transactionsStore.extractPattern(tx.description);
   updateSimilarCount();
   showCategoryDialog.value = true;
+}
+
+// TransactionList event handlers
+function onTransactionConfirm(tx: Transaction) {
+  // Swipe right confirms - no additional action needed
+  // The TransactionList component shows a notification
+}
+
+function onTransactionEdit(tx: Transaction) {
+  // Swipe left opens edit - handled by TransactionList's bottom sheet
+  // Keep reference for potential follow-up actions
+  selectedTransaction.value = tx;
+}
+
+function openQuickCreateFromList(tx: Transaction | null) {
+  selectedTransaction.value = tx;
+  quickCategory.value = {
+    name: '',
+    color: '#1976D2',
+    is_income: tx ? Number(tx.amount) > 0 : false,
+  };
+  showQuickCreateDialog.value = true;
+}
+
+function onCategorySaved(tx: Transaction, categoryId: string, isTransfer: boolean) {
+  // Refresh the list after category is saved from TransactionList
+  // The store is already updated by TransactionList
+}
+
+function onFlagForAccountant(tx: Transaction) {
+  transactionToFlag.value = tx;
+  showFlagDialog.value = true;
+}
+
+function onTransactionFlagged() {
+  $q.notify({
+    type: 'positive',
+    message: 'Transaction flagged for accountant review',
+    icon: 'gavel',
+    color: 'deep-orange',
+  });
 }
 
 function onCategorySelected() {
@@ -575,7 +668,8 @@ async function saveCategory() {
       selectedCategoryId.value!,
       categoryName,
       applyToSimilar.value ? matchPattern.value : null,
-      applyToSimilar.value
+      applyToSimilar.value,
+      isTransfer.value
     );
 
     if (result.updated > 1) {
@@ -584,9 +678,10 @@ async function saveCategory() {
         message: `Categorized ${result.updated} transactions${result.ruleCreated ? ' and saved rule' : ''}`,
       });
     } else {
+      const transferMsg = isTransfer.value ? ' (marked as transfer)' : '';
       $q.notify({
         type: 'positive',
-        message: 'Category updated',
+        message: `Category updated${transferMsg}`,
       });
     }
 
@@ -605,8 +700,9 @@ function formatDate(dateStr: string): string {
   return format(new Date(dateStr), 'dd MMM yyyy');
 }
 
-function formatAmount(amount: number): string {
-  return amount.toLocaleString('en-ZA', {
+function formatAmount(amount: number | string): string {
+  const num = Number(amount) || 0;
+  return num.toLocaleString('en-ZA', {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });

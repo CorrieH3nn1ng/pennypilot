@@ -29,6 +29,12 @@ class CategorySeeder extends Seeder
             ['name' => 'Rates & Taxes', 'icon' => 'home', 'color' => '#CDDC39', 'is_income' => false, 'sort_order' => 15],
             ['name' => 'Gambling/Lotto', 'icon' => 'casino', 'color' => '#FFC107', 'is_income' => false, 'sort_order' => 16],
             ['name' => 'Business Expenses', 'icon' => 'business', 'color' => '#1976D2', 'is_income' => false, 'sort_order' => 17],
+            ['name' => 'Toll Gates', 'icon' => 'toll', 'color' => '#FF7043', 'is_income' => false, 'sort_order' => 18],
+            ['name' => 'Charity', 'icon' => 'volunteer_activism', 'color' => '#E91E63', 'is_income' => false, 'sort_order' => 19],
+            ['name' => 'Education', 'icon' => 'school', 'color' => '#7C4DFF', 'is_income' => false, 'sort_order' => 20],
+            ['name' => 'Online Payments', 'icon' => 'payment', 'color' => '#00ACC1', 'is_income' => false, 'sort_order' => 21],
+            ['name' => 'Fines', 'icon' => 'gavel', 'color' => '#D32F2F', 'is_income' => false, 'sort_order' => 22],
+            ['name' => 'Unmapped Leaks', 'icon' => 'report_problem', 'color' => '#F44336', 'is_income' => false, 'sort_order' => 90],
             ['name' => 'Other Expense', 'icon' => 'receipt', 'color' => '#757575', 'is_income' => false, 'sort_order' => 99],
 
             // Income
@@ -37,6 +43,7 @@ class CategorySeeder extends Seeder
             ['name' => 'Investment', 'icon' => 'trending_up', 'color' => '#00BCD4', 'is_income' => true, 'sort_order' => 3],
             ['name' => 'Refund', 'icon' => 'replay', 'color' => '#FF9800', 'is_income' => true, 'sort_order' => 4],
             ['name' => 'Interest', 'icon' => 'percent', 'color' => '#03A9F4', 'is_income' => true, 'sort_order' => 5],
+            ['name' => 'Insurance Payout', 'icon' => 'shield', 'color' => '#9C27B0', 'is_income' => true, 'sort_order' => 6],
             ['name' => 'Other Income', 'icon' => 'attach_money', 'color' => '#9E9E9E', 'is_income' => true, 'sort_order' => 99],
         ];
 

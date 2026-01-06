@@ -49,6 +49,20 @@ export const transactionsApi = {
     return apiClient.post('/transactions/bulk', { transactions });
   },
 
+  async bulkUpdate(transactions: {
+    id: string;
+    category_id?: string | null;
+    is_transfer?: boolean;
+    is_categorized?: boolean;
+    categorized_by?: string | null;
+  }[]): Promise<{
+    updated_count: number;
+    error_count: number;
+    errors: string[];
+  }> {
+    return apiClient.put('/transactions/bulk', { transactions });
+  },
+
   async getSummary(startDate: string, endDate: string): Promise<TransactionSummary> {
     return apiClient.get<TransactionSummary>('/transactions/summary', {
       start_date: startDate,
