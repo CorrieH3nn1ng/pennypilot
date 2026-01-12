@@ -45,4 +45,17 @@ return [
         'api_key' => env('GEMINI_API_KEY'),
     ],
 
+    /*
+    |--------------------------------------------------------------------------
+    | n8n Workflow Automation
+    |--------------------------------------------------------------------------
+    | Configure the n8n webhook URL for Penny AI chat integration.
+    | The webhook should point to your n8n instance's Penny workflow.
+    */
+
+    'n8n' => [
+        'webhook_url' => env('N8N_PENNY_WEBHOOK_URL'),
+        'timeout' => env('N8N_TIMEOUT', 30),
+    ],
+
 ];

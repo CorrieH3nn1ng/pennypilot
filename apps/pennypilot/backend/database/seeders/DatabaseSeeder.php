@@ -18,7 +18,10 @@ class DatabaseSeeder extends Seeder
         // MUST run first - users table has FK to country_configs
         $this->call(CountryConfigSeeder::class);
 
-        // Seed default categories
+        // Seed groups first - categories link to groups
+        $this->call(GroupSeeder::class);
+
+        // Seed default categories with group assignments
         $this->call(CategorySeeder::class);
 
         // Note: No test user created - users should register through the app

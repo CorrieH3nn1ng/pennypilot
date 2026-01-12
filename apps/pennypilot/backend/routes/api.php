@@ -25,6 +25,10 @@ use App\Http\Controllers\Api\AuditController;
 use App\Http\Controllers\Api\LiabilityController;
 use App\Http\Controllers\Api\AccountantController;
 use App\Http\Controllers\Api\MilestoneController;
+use App\Http\Controllers\Api\GroupController;
+use App\Http\Controllers\Api\ServiceController;
+use App\Http\Controllers\Api\TelemetryController;
+use App\Http\Controllers\Api\PennyController;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -71,6 +75,19 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Categories
     Route::apiResource('categories', CategoryController::class)->except(['show']);
+
+    // Groups (Category Groupings)
+    Route::prefix('groups')->group(function () {
+        Route::get('/', [GroupController::class, 'index']);
+        Route::post('/', [GroupController::class, 'store']);
+        Route::get('/ungrouped-categories', [GroupController::class, 'ungroupedCategories']);
+        Route::get('/{id}', [GroupController::class, 'show']);
+        Route::put('/{id}', [GroupController::class, 'update']);
+        Route::delete('/{id}', [GroupController::class, 'destroy']);
+        Route::post('/{id}/assign-category', [GroupController::class, 'assignCategory']);
+        Route::post('/unassign-category/{categoryId}', [GroupController::class, 'unassignCategory']);
+        Route::post('/bulk-assign', [GroupController::class, 'bulkAssign']);
+    });
 
     // Transactions
     Route::get('/transactions/summary', [TransactionController::class, 'summary']);
@@ -119,6 +136,12 @@ Route::middleware('auth:sanctum')->group(function () {
     // Clients
     Route::apiResource('clients', ClientController::class);
 
+    // Services Catalog
+    Route::prefix('services')->group(function () {
+        Route::post('/quick-create', [ServiceController::class, 'quickCreate']);
+    });
+    Route::apiResource('services', ServiceController::class);
+
     // Invoices
     Route::prefix('invoices')->group(function () {
         Route::get('/preview-number', [InvoiceController::class, 'previewNumber']);
@@ -132,6 +155,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/{id}/pay', [InvoiceController::class, 'markPaid']);
         Route::put('/{id}/cancel', [InvoiceController::class, 'cancel']);
         Route::get('/{id}/download', [InvoiceController::class, 'download']);
+        Route::get('/{id}/pdf', [InvoiceController::class, 'generatePdf']);
+        Route::get('/{id}/pdf/preview', [InvoiceController::class, 'previewPdf']);
         Route::get('/{id}/find-matches', [InvoiceController::class, 'findMatches']);
         Route::post('/{id}/match', [InvoiceController::class, 'match']);
         Route::post('/{id}/unmatch', [InvoiceController::class, 'unmatch']);
@@ -162,6 +187,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // Centralized tax calculation - SINGLE SOURCE OF TRUTH
         Route::get('/effective-rate', [TaxController::class, 'getEffectiveRate']);
         Route::get('/verify-benchmark', [TaxController::class, 'verifyBenchmark']);
+        Route::get('/year-summary', [TaxController::class, 'getYearSummary']);
     });
 
     // AI Extraction
@@ -257,6 +283,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/match-blueprint', [AuditController::class, 'matchBlueprint']);
         Route::post('/unmatch-blueprint', [AuditController::class, 'unmatchBlueprint']);
         Route::post('/assign-blueprint', [AuditController::class, 'assignBlueprint']);
+        Route::get('/pattern-impact', [AuditController::class, 'getPatternImpact']);
+        Route::post('/assign-blueprint-advanced', [AuditController::class, 'assignBlueprintAdvanced']);
 
         // Spendable Cash Projection (with payment holiday awareness)
         Route::get('/spendable-projection', [AuditController::class, 'spendableProjection']);
@@ -268,6 +296,9 @@ Route::middleware('auth:sanctum')->group(function () {
         // Data Range & Tax Year
         Route::get('/data-range', [AuditController::class, 'dataRange']);
         Route::get('/tax-year/{year}', [AuditController::class, 'taxYearSummary']);
+        Route::get('/tax-ledger/{year}', [AuditController::class, 'getTaxLedger']);
+        Route::get('/tax-shield/{year}', [AuditController::class, 'getTaxShield']);
+        Route::get('/tax-projection/{year}', [AuditController::class, 'getTaxProjection']);
 
         // Global Transaction Rules (Pattern-Based Matching)
         Route::post('/apply-rules', [AuditController::class, 'applyRules']);
@@ -275,6 +306,17 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/rules', [AuditController::class, 'createRule']);
         Route::put('/rules/{id}', [AuditController::class, 'updateRule']);
         Route::delete('/rules/{id}', [AuditController::class, 'deleteRule']);
+
+        // User-Led Audit (Tabbed Reconciliation)
+        Route::get('/transactions-by-bucket/{year}/{month}', [AuditController::class, 'getTransactionsByBucket']);
+        Route::post('/toggle-nature', [AuditController::class, 'toggleNature']);
+        Route::post('/mark-transfer', [AuditController::class, 'markAsTransfer']);
+        Route::post('/toggle-transfer', [AuditController::class, 'toggleTransfer']);
+        Route::post('/assign-category', [AuditController::class, 'assignToCategory']);
+
+        // Enhanced Audit Page (Category-Blueprint Sync)
+        Route::get('/period-summary', [AuditController::class, 'periodSummary']);
+        Route::get('/bucketed-by-group/{year}/{month}', [AuditController::class, 'getBucketedByGroup']);
     });
 
     // ========================================
@@ -304,5 +346,34 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/{id}/complete', [MilestoneController::class, 'complete']);
         Route::post('/{id}/dismiss', [MilestoneController::class, 'dismiss']);
         Route::post('/{id}/snooze', [MilestoneController::class, 'snooze']);
+    });
+
+    // ========================================
+    // TELEMETRY / TRAVEL LOGBOOK IMPORT
+    // ========================================
+    Route::prefix('telemetry')->group(function () {
+        Route::post('/import', [TelemetryController::class, 'import']);
+        Route::get('/locations', [TelemetryController::class, 'getLocations']);
+        Route::post('/locations', [TelemetryController::class, 'saveLocations']);
+        Route::get('/summary', [TelemetryController::class, 'summary']);
+        Route::get('/trips', [TelemetryController::class, 'trips']);
+    });
+
+    // ========================================
+    // PENNY AI ASSISTANT (n8n Integration)
+    // ========================================
+    Route::prefix('penny')->group(function () {
+        // Memory CRUD
+        Route::get('/memory', [PennyController::class, 'getMemory']);
+        Route::put('/memory', [PennyController::class, 'updateMemory']);
+        Route::post('/sync-avatar', [PennyController::class, 'syncFromAvatar']);
+
+        // Chat (n8n webhook)
+        Route::post('/chat', [PennyController::class, 'chat']);
+
+        // Quick Actions
+        Route::post('/quest', [PennyController::class, 'addQuest']);
+        Route::post('/item', [PennyController::class, 'addItem']);
+        Route::post('/boss-goal', [PennyController::class, 'setBossGoal']);
     });
 });

@@ -253,6 +253,116 @@ PROMPT;
     }
 
     /**
+     * Chat with Penny AI - direct Gemini call (faster than n8n)
+     */
+    public function pennyChat(string $userMessage, array $context): array
+    {
+        if (!$this->apiKey) {
+            throw new \Exception('Gemini API key not configured');
+        }
+
+        $systemPrompt = $this->buildPennySystemPrompt($context);
+        $fullPrompt = $systemPrompt . "\n\nUser: " . $userMessage;
+
+        $response = $this->getHttpClient()
+            ->timeout(15) // Fast timeout for chat
+            ->post(
+                "{$this->baseUrl}/models/gemini-2.0-flash:generateContent?key={$this->apiKey}",
+                [
+                    'contents' => [
+                        [
+                            'parts' => [
+                                ['text' => $fullPrompt],
+                            ],
+                        ],
+                    ],
+                    'generationConfig' => [
+                        'temperature' => 0.7,
+                        'maxOutputTokens' => 200,
+                    ],
+                ]
+            );
+
+        if (!$response->successful()) {
+            Log::error('Gemini Penny chat error', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+            throw new \Exception('Gemini API error');
+        }
+
+        $result = $response->json();
+        $text = $result['candidates'][0]['content']['parts'][0]['text'] ?? '';
+
+        return [
+            'reply' => trim($text) ?: 'Ready. What can I help with?',
+            'action' => null,
+            'memory_updates' => null,
+        ];
+    }
+
+    /**
+     * Build Penny's system prompt with user context
+     */
+    private function buildPennySystemPrompt(array $context): string
+    {
+        $identity = $context['identity'] ?? [];
+        $bossGoal = $context['boss_goal'] ?? [];
+        $stats = $context['stats'] ?? [];
+        $quadrants = $context['quadrants'] ?? [];
+        $missing = $context['missing_fields'] ?? [];
+
+        $name = $identity['name'] ?? 'Unknown';
+        $age = $identity['age'] ?? 'Unknown';
+        $client = $identity['client'] ?? 'Unknown';
+        $level = $stats['level'] ?? 1;
+        $totalXp = $stats['total_xp'] ?? 0;
+        $questStreak = $stats['quest_streak'] ?? 0;
+
+        $bossGoalText = 'NOT SET';
+        if (!empty($bossGoal['name'])) {
+            $target = number_format($bossGoal['target'] ?? 0);
+            $progress = $bossGoal['progress_percent'] ?? 0;
+            $bossGoalText = "{$bossGoal['name']}: R{$target} ({$progress}%)";
+        }
+
+        $doStatus = ($quadrants['has_quests'] ?? false) ? 'Has data' : 'EMPTY';
+        $haveStatus = ($quadrants['has_inventory'] ?? false) ? 'Has data' : 'EMPTY';
+        $beStatus = ($quadrants['has_traits'] ?? false) ? 'Has data' : 'EMPTY';
+        $liveStatus = ($quadrants['has_destination'] ?? false) ? 'Set' : 'EMPTY';
+
+        $missingText = count($missing) > 0 ? implode(', ', $missing) : 'None';
+
+        return <<<PROMPT
+You are Penny, a stoic financial co-pilot.
+
+Rules:
+- Direct and efficient, minimal fluff
+- Use **bold** for emphasis
+- Keep responses under 80 words
+- NEVER ask for data already known
+
+== KNOWN USER DATA ==
+Name: {$name}
+Age: {$age}
+Client: {$client}
+Level: {$level} | XP: {$totalXp} | Streak: {$questStreak}d
+
+== BOSS GOAL ==
+{$bossGoalText}
+
+== QUADRANT STATUS ==
+DO: {$doStatus}
+HAVE: {$haveStatus}
+BE: {$beStatus}
+LIVE: {$liveStatus}
+
+== CAN ASK ABOUT ==
+{$missingText}
+PROMPT;
+    }
+
+    /**
      * Extract financial document data for onboarding (invoice or payslip)
      * Designed to populate the onboarding wizard with income information
      */

@@ -1,0 +1,115 @@
+{
+  "name": "Penny AI Chat",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "penny-chat",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "08a214d9-e8a6-4690-82a7-d7728e459e6c",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [-200, 240],
+      "webhookId": "penny-chat"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract data from PennyPilot webhook\nconst body = $input.first().json.body || $input.first().json;\nconst { session_id, user_message, action, context } = body;\n\n// User context for AI\nconst identity = context?.identity || {};\nconst bossGoal = context?.boss_goal || {};\nconst stats = context?.stats || {};\nconst quadrants = context?.quadrants || {};\nconst missing = context?.missing_fields || [];\n\n// Build the full prompt\nconst systemContext = `You are Penny, a stoic financial co-pilot.\n\nRules:\n- Direct and efficient, minimal fluff\n- Use **bold** for emphasis\n- Keep responses under 80 words\n- NEVER ask for data already known\n\n== KNOWN USER DATA ==\nName: ${identity.name || 'Unknown'}\nAge: ${identity.age || 'Unknown'}\nClient: ${identity.client || 'Unknown'}\nLevel: ${stats.level || 1} | XP: ${stats.total_xp || 0} | Streak: ${stats.quest_streak || 0}d\n\n== BOSS GOAL ==\n${bossGoal.name ? bossGoal.name + ': R' + Number(bossGoal.target || 0).toLocaleString() + ' (' + (bossGoal.progress_percent || 0) + '%)' : 'NOT SET'}\n\n== QUADRANT STATUS ==\nDO: ${quadrants.has_quests ? 'Has data' : 'EMPTY'}\nHAVE: ${quadrants.has_inventory ? 'Has data' : 'EMPTY'}\nBE: ${quadrants.has_traits ? 'Has data' : 'EMPTY'}\nLIVE: ${quadrants.has_destination ? 'Set' : 'EMPTY'}\n\n== CAN ASK ABOUT ==\n${missing.length > 0 ? missing.join(', ') : 'None'}\n\n== ACTION ==\n${action || 'chat'}`;\n\nconst fullPrompt = systemContext + '\\n\\nUser: ' + (user_message || 'Hello');\n\nreturn {\n  prompt: fullPrompt,\n  session_id,\n  action\n};"
+      },
+      "id": "470fb21e-d20f-45a2-aedf-2c9ccb91e19f",
+      "name": "Build Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [20, 240]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.prompt }}",
+        "hasOutputParser": false,
+        "options": {}
+      },
+      "id": "agent-node-001",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.4,
+      "position": [240, 240]
+    },
+    {
+      "parameters": {
+        "options": {
+          "temperature": 0.7
+        }
+      },
+      "id": "gemini-model-001",
+      "name": "Gemini Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [240, 440],
+      "credentials": {
+        "googlePalmApi": {
+          "id": "ULSBBIsutuJzDrrD",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Get the AI Agent output\nconst response = $input.first().json;\n\n// AI Agent returns: { state: \"...\", cities: [] }\n// or sometimes: { text: \"...\" } or { output: \"...\" }\nlet replyText = response.state || response.text || response.output || '';\n\n// If it's an object, try to extract text\nif (typeof replyText === 'object') {\n  replyText = replyText.text || replyText.state || JSON.stringify(replyText);\n}\n\n// Clean up the response\nreplyText = String(replyText).trim();\n\n// If empty, provide fallback\nif (!replyText) {\n  replyText = 'Ready. What can I help with?';\n}\n\nreturn {\n  reply: replyText,\n  action: null,\n  memory_updates: null\n};"
+      },
+      "id": "9f2f4907-dec1-4f07-b399-b918ef023962",
+      "name": "Parse Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 240]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "id": "f721e488-6353-4f70-b8f4-36879cd25281",
+      "name": "Respond",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [700, 240]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{"node": "Build Prompt", "type": "main", "index": 0}]]
+    },
+    "Build Prompt": {
+      "main": [[{"node": "AI Agent", "type": "main", "index": 0}]]
+    },
+    "Gemini Chat Model": {
+      "ai_languageModel": [[{"node": "AI Agent", "type": "ai_languageModel", "index": 0}]]
+    },
+    "AI Agent": {
+      "main": [[{"node": "Parse Response", "type": "main", "index": 0}]]
+    },
+    "Parse Response": {
+      "main": [[{"node": "Respond", "type": "main", "index": 0}]]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
